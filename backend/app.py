@@ -57,12 +57,39 @@ def proxy(endpoint):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/analyze/discrepancy-detection", methods=["GET"])
+def discrepancy_detection():
+    """Perform full discrepancy detection between tickets and drain data."""
+    try:
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        tickets = tickets_response.get("transport_tickets", [])
+        data = convert_historical_data(historical_data)
+        drain_events = detect_drain_events(data)
+        discrepancies = find_discrepancies(drain_events, tickets)
+
+        return jsonify({
+            "success": True,
+            "discrepancies": discrepancies,
+            "summary": {
+                "total": len(discrepancies),
+                "critical": len([d for d in discrepancies if d["severity"] == "critical"]),
+                "high": len([d for d in discrepancies if d["severity"] == "high"]),
+                "medium": len([d for d in discrepancies if d["severity"] == "medium"]),
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 """Analysis"""
 
 @app.route("/api/analyze/summary")
 def analyze_summary():
     """Get quick summary of system status"""
     try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
         # Fetch all required data
         historical_data = get_cached_or_fetch("Data", "historical_data")
         tickets_response = get_cached_or_fetch("Tickets", "tickets")
@@ -105,6 +132,9 @@ def analyze_drain_events():
     Expects: { "cauldronId": "optional" }
     """
     try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
         params = request.json or {}
         cauldron_id = params.get('cauldronId')
         
@@ -129,6 +159,9 @@ def analyze_discrepancies():
     Expects: { "ticketThreshold": 0.05 } (optional 5% tolerance)
     """
     try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
         params = request.json or {}
         threshold = params.get('ticketThreshold', 0.05)
         
@@ -165,6 +198,9 @@ def analyze_fill_rates():
     Expects: { "cauldronId": "optional" }
     """
     try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
         params = request.json or {}
         cauldron_id = params.get('cauldronId')
         
@@ -186,6 +222,9 @@ def analyze_predictions():
     Expects: { "hoursAhead": 24 }
     """
     try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
         params = request.json or {}
         hours_ahead = params.get('hoursAhead', 24)
         
