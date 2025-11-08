@@ -66,10 +66,9 @@ You should see:
 ```
   VITE v5.x.x  ready in 500 ms
 
-  ➜  Local:   http://localhost:3000/
+  ➜  Local:   http://localhost:5173/
 ```
-
-✅ **Frontend is ready!** Open http://localhost:3000 in your browser.
+✅ **Frontend is ready!** Open http://localhost:5173 in your browser.
 
 ---
 
