@@ -27,7 +27,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   const lonTicks = Array.from({ length: 5 }, (_, i) => minLon + ((maxLon - minLon) / 4) * i);
 
   return (
-    <div className="relative w-full h-[500px] bg-black/20 border border-white/20 rounded-lg overflow-hidden">
+    <div className="relative w-full h-[300px] bg-black/20 border border-white/20 rounded-lg overflow-hidden">
       {/* 🗺️ Grid Lines and Labels */}
       {/* Vertical (Longitude) lines */}
       {lonTicks.map((lon, i) => {
@@ -137,8 +137,7 @@ const App = () => {
 
   useEffect(() => {
     fetchData();
-    // Refresh data every 5 seconds
-    const interval = setInterval(() => fetchData(false), 5000);
+    const interval = setInterval(() => fetchData(false), 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -146,7 +145,6 @@ const App = () => {
     try {
       setLoading(true);
       
-      // Fetch cauldrons info
       const cauldronRes = await fetch(`/api/Information/cauldrons${forceRefresh ? '?forceRefresh=true' : ''}`);
       if (!cauldronRes.ok) throw new Error(`Cauldrons API returned ${cauldronRes.status}`);
       const cauldronData = await cauldronRes.json();
@@ -223,12 +221,14 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 text-white p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-indigo-900 w-full text-white">
+      <div className="w-full mx-auto p-6 flex flex-col gap-4">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">🧙‍♀️ Potion Factory Dashboard</h1>
-          <p className="text-purple-200">Real-time monitoring of cauldron levels</p>
+        <div className="mb-8 flex justify-between">
+          <div>
+            <h1 className="font-bold mb-2">🧙‍♀️ The Brew Report</h1>
+            <p className="text-purple-200">Real-time monitoring of cauldron levels</p>
+          </div>
           <button
             onClick={() => fetchData(true)}
             className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
@@ -269,7 +269,7 @@ const App = () => {
         
 
         {/* Current Levels Bar Chart */}
-        <div className="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20 mb-6">
+        <div className="bg-white/10 rounded-lg p-6 border border-white/20">
           <h2 className="text-2xl font-bold mb-4">Current Cauldron Levels</h2>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={getBarChartData()}>
@@ -292,9 +292,9 @@ const App = () => {
         </div>
 
         {/* Cauldron Details Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Cauldron Selection and Line Chart */}
-          <div className="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20">
+          <div className="bg-white/10 rounded-lg p-6 border border-white/20">
             <h2 className="text-2xl font-bold mb-4">Historical Levels</h2>
             
             {/* Cauldron Selector */}
@@ -342,7 +342,7 @@ const App = () => {
           </div>
 
           {/* Cauldron Status List */}
-          <div className="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20">
+          <div className="bg-white/10 rounded-lg p-6 border border-white/20">
             <h2 className="text-2xl font-bold mb-4">Cauldron Status</h2>
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {cauldrons.length > 0 ? (
@@ -387,7 +387,7 @@ const App = () => {
         </div>
 
         {/* Recent Tickets */}
-        <div className="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20">
+        <div className="bg-white/10 rounded-lg p-6 border border-white/20">
           <h2 className="text-2xl font-bold mb-4">Recent Transport Tickets</h2>
           <div className="overflow-x-auto">
             {tickets.length > 0 ? (
@@ -421,7 +421,7 @@ const App = () => {
 
         {/* Footer */}
         <div className="mt-6 text-center text-purple-200 text-sm">
-          Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every 5s
+          Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every 10s
         </div>
       </div>
     </div>
