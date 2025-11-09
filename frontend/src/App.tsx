@@ -18,6 +18,7 @@ import refreshIcon from "./assets/refresh.svg";
 import poyoIcon from "./assets/poyo.png";
 import cauldronIcon from "./assets/cauldron.svg";
 import alertIcon from "./assets/alert.svg";
+import clockIcon from "./assets/clock.svg";
 
 const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
@@ -230,7 +231,7 @@ const App = () => {
       setAnnotatedTickets(tickets);
 
       // Set first cauldron as selected by default
-      if (cauldronData.length > 0 && !selectedCauldron) {
+      if (cauldronData.length > 0 && selectedCauldron === null) {
         setSelectedCauldron(cauldronData[0].id);
       }
 
@@ -408,6 +409,7 @@ const App = () => {
               />
               <YAxis stroke="#190d42" />
               <Tooltip
+                cursor={{ fill: "rgba(0, 0, 0, 0.07)" }}
                 contentStyle={{
                   backgroundColor: "rgba(0,0,0,0.9)",
                   border: "none",
@@ -491,7 +493,10 @@ const App = () => {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Cauldron Selection and Line Chart */}
           <div className="rounded-lg border border-white/20 bg-white/80 p-6">
-            <h2 className="mb-4 text-2xl font-bold">Historical Levels</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <img src={clockIcon} alt="Clock icon" width={45} height={45} />
+              <h2 className="text-2xl font-bold">Historical Levels</h2>
+            </div>
 
             {/* Cauldron Selector */}
             {cauldrons.length > 0 ? (
@@ -513,7 +518,7 @@ const App = () => {
                       strokeDasharray="3 3"
                       stroke="rgba(0,0,0,0.15)"
                     />
-                    <XAxis dataKey="time" stroke="#190d42" />
+                    <XAxis dataKey="time" stroke="#190d42" minTickGap={50} />
                     <YAxis
                       stroke="#190d42"
                       domain={[minLevel, maxLevel]}
