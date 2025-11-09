@@ -1,9 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap');
 @import "tailwindcss";
-@tailwind utilities;
 
 :root {
-  font-family: system-ui, Cormorant, Avenir, Helvetica, Arial, sans-serif;
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -38,6 +39,12 @@ h1 {
   line-height: 1.1;
 }
 
+h2 {
+  font-family: "Cinzel", serif;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
@@ -69,8 +76,20 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+.cinzel-title {
+  font-family: "Cinzel", serif;
+  font-optical-sizing: auto;
+  font-weight: 900;
+  font-style: normal;
+}
 
-/* Custom Cormorant font classes */
+.ibm-regular {
+  font-family: "IBM Plex Sans", serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+}
+
 .cormorant-regular {
   font-family: "Cormorant", serif;
   font-optical-sizing: auto;
