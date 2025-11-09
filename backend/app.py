@@ -351,7 +351,7 @@ def discrepancy_detection():
             "discrepancies": discrepancies,
             "summary": {
                 "total": len(discrepancies),
-                "critical": len([d for d in discrepancies if d["severity"] == "critical"]),
+                "discrepancy": len([d for d in discrepancies if d["severity"] == "discrepancy"]),
                 "high": len([d for d in discrepancies if d["severity"] == "high"]),
                 "medium": len([d for d in discrepancies if d["severity"] == "medium"]),
             }
@@ -426,7 +426,7 @@ def analyze_discrepancies():
                 "success": False,
                 "error": "Failed to fetch data from API",
                 "discrepancies": [],
-                "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0}
+                "summary": {"total": 0, "discrepancy": 0, "high": 0, "medium": 0}
             })
         
         converted_data = convert_historical_data(historical_data)
@@ -444,7 +444,7 @@ def analyze_discrepancies():
             "discrepancies": discrepancies,
             "summary": {
                 "total": len(discrepancies),
-                "critical": len([d for d in discrepancies if d['severity'] == 'critical']),
+                "discrepancy": len([d for d in discrepancies if d['severity'] == 'discrepancy']),
                 "high": len([d for d in discrepancies if d['severity'] == 'high']),
                 "medium": len([d for d in discrepancies if d['severity'] == 'medium'])
             }
@@ -456,7 +456,7 @@ def analyze_discrepancies():
             "success": False,
             "error": str(e),
             "discrepancies": [],
-            "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0}
+            "summary": {"total": 0, "discrepancy": 0, "high": 0, "medium": 0}
         })
 
 @app.route("/api/analyze/summary")
@@ -493,11 +493,11 @@ def analyze_summary():
                 "suspiciousTickets": tickets_response.get('metadata', {}).get('suspicious_tickets', 0),
                 "discrepancies": {
                     "total": len(discrepancies),
-                    "critical": len([d for d in discrepancies if d['severity'] == 'critical']),
+                    "discrepancy": len([d for d in discrepancies if d['severity'] == 'discrepancy']),
                     "high": len([d for d in discrepancies if d['severity'] == 'high']),
                     "medium": len([d for d in discrepancies if d['severity'] == 'medium'])
                 },
-                "overflowRisk": len([p for p in predictions if p['urgency'] == 'critical'])
+                "overflowRisk": len([p for p in predictions if p['urgency'] == 'discrepancy'])
             }
         })
     except Exception as e:
@@ -527,7 +527,7 @@ def get_annotated_tickets():
             "summary": {
                 "total": len(tickets),
                 "suspicious": len([t for t in annotated if t.get('is_suspicious')]),
-                "critical": len([t for t in annotated if t.get('suspicion_severity') == 'critical'])
+                "discrepancy": len([t for t in annotated if t.get('suspicion_severity') == 'discrepancy'])
             }
         })
     except Exception as e:
@@ -1097,7 +1097,7 @@ def annotate_tickets_with_discrepancies(tickets, discrepancies):
                     drains.append(d['drainEvent'])
             
             # Use highest severity
-            severity_order = {'critical': 3, 'high': 2, 'medium': 1, 'low': 0}
+            severity_order = {'discrepancy': 3, 'high': 2, 'medium': 1, 'low': 0}
             max_severity = max(severities, key=lambda s: severity_order.get(s, 0))
             
             t_copy['suspicion_type'] = types[0] if len(types) == 1 else "MULTIPLE_ISSUES"
@@ -1172,7 +1172,7 @@ def find_discrepancies(drain_events, tickets, threshold=0.15):
                 if ticket.get('amount_collected', 0) > 10:  # Only flag significant amounts
                     discrepancies.append({
                         "type": "PHANTOM_TICKET",
-                        "severity": "critical",
+                        "severity": "discrepancy",
                         "cauldronId": cauldron_id,
                         "date": date,
                         "ticket": ticket,
@@ -1225,7 +1225,7 @@ def find_discrepancies(drain_events, tickets, threshold=0.15):
         
         else:
             # Daily totals DON'T match - flag the discrepancy
-            severity = "critical" if percent_diff > 50 else "high" if percent_diff > 30 else "medium"
+            severity = "discrepancy" if percent_diff > 50 else "high" if percent_diff > 30 else "medium"
             
             if total_ticket_volume > total_drain_volume:
                 # More tickets than drains - possible fraud
@@ -1305,7 +1305,7 @@ def predict_overflow(data, cauldrons, fill_rates, hours_ahead=24):
                         "fillRate": round(fill_rate, 3),
                         "hoursToFull": round(hours_to_full, 2),
                         "estimatedOverflowTime": overflow_time.isoformat(),
-                        "urgency": "critical" if hours_to_full < 4 else "high" if hours_to_full < 12 else "medium"
+                        "urgency": "discrepancy" if hours_to_full < 4 else "high" if hours_to_full < 12 else "medium"
                     })
                 except:
                     continue
