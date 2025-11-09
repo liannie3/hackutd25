@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   BarChart,
   Bar,
@@ -22,6 +22,7 @@ import clockIcon from "./assets/clock.svg";
 import catIcon from "./assets/cat.png";
 import marketIcon from "./assets/market.svg";
 
+// (CauldronGridMap component remains unchanged)
 const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
     return (
@@ -166,11 +167,29 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
     </div>
   );
 };
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    // Set a timeout to update the debounced value after the delay
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    // Cancel the timeout if value changes (or component unmounts)
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
 
 const App = () => {
   const [cauldrons, setCauldrons] = useState([]);
   const [currentLevels, setCurrentLevels] = useState({});
-  const [historicalData, setHistoricalData] = useState([]);
+  // 👇 CHANGE 1: Use an object to store historical data by date key.
+  const [historicalDataByDate, setHistoricalDataByDate] = useState({});
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -182,13 +201,23 @@ const App = () => {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+  const debouncedSelectedDate = useDebounce(selectedDate, 500); // 500ms delay
   const [loadingDateData, setLoadingDateData] = useState(false);
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
     fetchData();
+    // Fetch data for the initial 'Today' date when component mounts
+    fetchDataForDate(new Date().toISOString().split("T")[0]);
     const interval = setInterval(() => fetchData(false), 10000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (debouncedSelectedDate) {
+      fetchDataForDate(debouncedSelectedDate);
+    }
+  }, [debouncedSelectedDate]);
 
   const fetchData = async (forceRefresh = false) => {
     try {
@@ -211,21 +240,30 @@ const App = () => {
       const marketData = await marketRes.json();
       setMarket(marketData);
 
-      // Fetch historical data
+      // Fetch historical data (assuming this API without date params returns TODAY's data)
       const dataRes = await fetch(
         `/api/Data${forceRefresh ? "?forceRefresh=true" : ""}`,
       );
       if (!dataRes.ok) throw new Error(`Data API returned ${dataRes.status}`);
       const histData = await dataRes.json();
 
-      // Limit historical data to last 200 points to prevent memory issues
-      setHistoricalData(histData.slice(-200));
+      // Limit historical data to last 200 points
+      const today = new Date().toISOString().split("T")[0];
+      const newTodayData = histData.slice(-200);
 
-      // Get latest levels from most recent data point
-      if (histData.length > 0) {
-        const latest = histData[histData.length - 1];
-        setCurrentLevels(latest.cauldron_levels || {});
-      }
+      // 👇 CHANGE 2: Update historical data for TODAY only, ensuring other dates are preserved
+      setHistoricalDataByDate((prev) => {
+        if (newTodayData.length > 0) {
+          const latest = newTodayData[newTodayData.length - 1];
+          // Update current levels from the latest data point
+          setCurrentLevels(latest.cauldron_levels || {});
+        }
+
+        return {
+          ...prev,
+          [today]: newTodayData, // Store today's data under the 'today' key
+        };
+      });
 
       // Fetch tickets
       const ticketRes = await fetch(
@@ -238,9 +276,10 @@ const App = () => {
       setTickets(tickets);
       setAnnotatedTickets(tickets);
 
-      // Set first cauldron as selected by default
-      if (cauldronData.length > 0 && selectedCauldron == null) {
+      // Set first cauldron on first reset only
+      if (cauldronData.length > 0 && !hasInitialized.current) {
         setSelectedCauldron(cauldronData[0].id);
+        hasInitialized.current = true;
       }
 
       setError(null);
@@ -255,6 +294,8 @@ const App = () => {
     }
   };
   const dateToUnixTimestamp = (dateString) => {
+    // Add 12 hours for a safer middle-of-day timestamp if needed, but
+    // using start/end of day ranges is usually better for server-side filtering.
     return Math.floor(new Date(dateString).getTime() / 1000);
   };
 
@@ -276,10 +317,18 @@ const App = () => {
       if (!dataRes.ok) throw new Error(`Data API returned ${dataRes.status}`);
       const histData = await dataRes.json();
 
-      setHistoricalData(histData);
+      // 👇 CHANGE 3: Store the historical data under the specific date key
+      setHistoricalDataByDate((prev) => ({
+        ...prev,
+        [date]: histData,
+      }));
     } catch (err) {
       console.error("Error fetching date data:", err);
-      setHistoricalData([]);
+      // Clear data for the failed date
+      setHistoricalDataByDate((prev) => ({
+        ...prev,
+        [date]: [],
+      }));
     } finally {
       setLoadingDateData(false);
     }
@@ -287,17 +336,15 @@ const App = () => {
 
   // Prepare chart data for selected cauldron
   const getChartData = () => {
+    // 👇 CHANGE 4: Get the data array for the currently selected date
+    const historicalData = historicalDataByDate[selectedDate] || [];
+
     if (!selectedCauldron || !historicalData.length) return [];
 
-    // Filter historical data for the selected date
-    const filteredData = historicalData.filter((dataPoint) => {
-      const dataDate = new Date(dataPoint.timestamp)
-        .toISOString()
-        .split("T")[0];
-      return dataDate === selectedDate;
-    });
+    // The date filtering logic is now handled by the API call in fetchDataForDate/fetchData,
+    // so we can use the whole array.
 
-    return filteredData.map((dataPoint) => ({
+    return historicalData.map((dataPoint) => ({
       time: new Date(dataPoint.timestamp).toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
@@ -313,9 +360,17 @@ const App = () => {
 
   if (chartData.length > 0) {
     const levels = chartData.map((d) => d.level);
-    minLevel = Math.min(...levels) * 0.99; // 5% padding below
-    maxLevel = Math.max(...levels) * 1.01; // 5% padding above
+    // Use a small buffer to prevent the line from touching the edges
+    minLevel = Math.max(0, Math.min(...levels) * 0.99);
+    maxLevel = Math.max(...levels) * 1.01;
+
+    // Ensure the range is not zero if all levels are the same (e.g., all 100)
+    if (minLevel === maxLevel) {
+      maxLevel = maxLevel * 1.01 + 1; // Add a small buffer if flatline
+      minLevel = Math.max(0, minLevel * 0.99 - 1);
+    }
   }
+
   // Prepare bar chart data for all cauldrons
   const getBarChartData = () => {
     return cauldrons.map((cauldron) => ({
@@ -570,18 +625,15 @@ const App = () => {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
+                    // 👇 Call fetchDataForDate immediately on date change
+                    onChange={(e) => {
+                      setSelectedDate(e.target.value);
+                    }}
                     max={new Date().toISOString().split("T")[0]}
                     className="flex-1 rounded-lg border border-gray-400 bg-white/20 px-4 py-2"
                     disabled={loadingDateData}
                   />
-                  <button
-                    onClick={() => fetchDataForDate(selectedDate)}
-                    className="cursor-pointer rounded-lg bg-[#2E404A] px-4 py-2 text-white hover:bg-[#1c2c34] disabled:opacity-50"
-                    disabled={loadingDateData}
-                  >
-                    {loadingDateData ? "Loading..." : "View"}
-                  </button>
+                  {/* Removed 'View' button as it's now triggered on change */}
                   <button
                     onClick={() => {
                       const today = new Date().toISOString().split("T")[0];
@@ -603,49 +655,63 @@ const App = () => {
 
                 <div className="min-h-0 flex-1">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={getChartData()}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="rgba(0,0,0,0.15)"
-                      />
-                      <XAxis dataKey="time" stroke="#190d42" minTickGap={50} />
-                      <YAxis
-                        stroke="#190d42"
-                        domain={[minLevel, maxLevel]}
-                        tickFormatter={(value) => value.toFixed(1)}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "rgba(0,0,0,0.9)",
-                          border: "none",
-                          borderRadius: "8px",
-                          color: "#fff",
-                        }}
-                        formatter={(value) => {
-                          const selectedCauldronData = cauldrons.find(
-                            (c) => c.id === selectedCauldron,
-                          );
-                          if (selectedCauldronData) {
-                            const percent = (
-                              (value / selectedCauldronData.max_volume) *
-                              100
-                            ).toFixed(0);
+                    {chartData.length > 0 ? (
+                      <LineChart data={chartData}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="rgba(0,0,0,0.15)"
+                        />
+                        <XAxis
+                          dataKey="time"
+                          stroke="#190d42"
+                          minTickGap={50}
+                        />
+                        <YAxis
+                          stroke="#190d42"
+                          domain={[minLevel, maxLevel]}
+                          tickFormatter={(value) => value.toFixed(1)}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(0,0,0,0.9)",
+                            border: "none",
+                            borderRadius: "8px",
+                            color: "#fff",
+                          }}
+                          formatter={(value) => {
+                            const selectedCauldronData = cauldrons.find(
+                              (c) => c.id === selectedCauldron,
+                            );
+                            if (selectedCauldronData) {
+                              const percent = (
+                                (value / selectedCauldronData.max_volume) *
+                                100
+                              ).toFixed(0);
+                              return [
+                                <span style={{ color: "#b369a7" }}>
+                                  {value}/{selectedCauldronData.max_volume} L (
+                                  {percent}%)
+                                </span>,
+                              ];
+                            }
                             return [
-                              `${value}/${selectedCauldronData.max_volume} L (${percent}%)`,
+                              <span style={{ color: "#b369a7" }}>{value}</span>,
+                              "Level (L)",
                             ];
-                          }
-                          return [value, "Level (L)"];
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="level"
-                        stroke="#2E404A"
-                        strokeWidth={2}
-                        dot={false}
-                        name="Level (L)"
-                      />
-                    </LineChart>
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="level"
+                          stroke="#2E404A"
+                          strokeWidth={2}
+                          dot={false}
+                          name="Level (L)"
+                        />
+                      </LineChart>
+                    ) : (
+                      <div className="flex h-full items-center justify-center"></div>
+                    )}
                   </ResponsiveContainer>
                 </div>
               </>
@@ -829,31 +895,19 @@ const App = () => {
                       setCurrentPage((prev) => Math.max(prev - 1, 1))
                     }
                     disabled={currentPage === 1}
-                    className="rounded bg-zinc-300 px-4 py-2 transition-colors hover:bg-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-gray-400 px-3 py-1 text-[#190d42] disabled:opacity-50"
                   >
                     Previous
                   </button>
-
-                  <select
-                    value={currentPage}
-                    onChange={(e) => setCurrentPage(Number(e.target.value))}
-                    className="rounded border border-zinc-300 bg-zinc-200 px-3 py-2 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
-                  >
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                      (page) => (
-                        <option key={page} value={page}>
-                          Page {page}
-                        </option>
-                      ),
-                    )}
-                  </select>
-
+                  <span className="text-sm">
+                    Page {currentPage} of {totalPages}
+                  </span>
                   <button
                     onClick={() =>
                       setCurrentPage((prev) => Math.min(prev + 1, totalPages))
                     }
                     disabled={currentPage === totalPages}
-                    className="rounded bg-zinc-300 px-4 py-2 transition-colors hover:bg-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-gray-400 px-3 py-1 text-[#190d42] disabled:opacity-50"
                   >
                     Next
                   </button>
@@ -861,14 +915,8 @@ const App = () => {
               </div>
             </>
           ) : (
-            <p className="p-4 text-purple-200">No tickets available</p>
+            <p className="p-4 text-center text-gray-500">No tickets found.</p>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-6 text-center text-sm">
-          Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every
-          10s
         </div>
       </div>
     </div>
