@@ -19,6 +19,7 @@ import poyoIcon from "./assets/poyo.png";
 import cauldronIcon from "./assets/cauldron.svg";
 import alertIcon from "./assets/alert.svg";
 import clockIcon from "./assets/clock.svg";
+import catIcon from "./assets/cat.png";
 
 const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
@@ -349,7 +350,7 @@ const App = () => {
                 <h1 className="cinzel-title flex items-center gap-2 font-bold">
                   The Brew Report
                 </h1>
-                <p className="text-xl font-bold text-[#794B72]">
+                <p className="text-lg font-bold text-[#794B72]">
                   What's that? What's abrew?
                 </p>
               </div>
@@ -630,8 +631,10 @@ const App = () => {
         </div>
 
         {/* Recent Tickets */}
-
-        <h2 className="mt-4 text-3xl font-bold">Recent Transport Tickets</h2>
+        <div className="mb-1 flex items-end">
+          <img src={catIcon} alt="Cat icon" width={100} height={100} />
+          <h2 className="mb-1 text-4xl font-bold">Recent Transport Tickets</h2>
+        </div>
         <div className="overflow-x-auto rounded-xl bg-white/80">
           {tickets.length > 0 ? (
             <>

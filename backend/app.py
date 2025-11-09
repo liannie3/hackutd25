@@ -91,6 +91,81 @@ def get_cached_or_fetch(endpoint, cache_key=None, params=None):
         if key in cache:
             return cache[key][0]
         return None
+    
+def get_previous_date(date_str):
+    """Get previous date in YYYY-MM-DD format"""
+    from datetime import datetime, timedelta
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    prev_date = date_obj - timedelta(days=1)
+    return prev_date.strftime("%Y-%m-%d")
+
+
+def get_next_date(date_str):
+    """Get next date in YYYY-MM-DD format"""
+    from datetime import datetime, timedelta
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    next_date = date_obj + timedelta(days=1)
+    return next_date.strftime("%Y-%m-%d")
+
+
+# Add this debug endpoint to your Flask app
+@app.route("/api/debug/date-coverage", methods=['GET'])
+def debug_date_coverage():
+    """Check which dates have drain data vs ticket data"""
+    try:
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
+        
+        tickets = tickets_response.get('transport_tickets', [])
+        converted_data = convert_historical_data(historical_data)
+        
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)
+        drain_events = merge_nearby_drains(drain_events, max_gap_minutes=60)
+        
+        # Get date ranges
+        drain_dates = set()
+        for drain in drain_events:
+            drain_dates.add(drain['startTime'].split('T')[0])
+        
+        ticket_dates = set()
+        for ticket in tickets:
+            ticket_dates.add(ticket.get('date', '').split('T')[0])
+        
+        # Get data availability dates
+        data_dates = set()
+        for entry in converted_data:
+            data_dates.add(entry['timestamp'].split('T')[0])
+        
+        return jsonify({
+            "drain_date_range": {
+                "first": min(drain_dates) if drain_dates else None,
+                "last": max(drain_dates) if drain_dates else None,
+                "total_days": len(drain_dates)
+            },
+            "ticket_date_range": {
+                "first": min(ticket_dates) if ticket_dates else None,
+                "last": max(ticket_dates) if ticket_dates else None,
+                "total_days": len(ticket_dates)
+            },
+            "raw_data_range": {
+                "first": min(data_dates) if data_dates else None,
+                "last": max(data_dates) if data_dates else None,
+                "total_days": len(data_dates)
+            },
+            "dates_with_tickets_but_no_drains": sorted(ticket_dates - drain_dates),
+            "dates_with_drains_but_no_tickets": sorted(drain_dates - ticket_dates),
+            "dates_with_both": sorted(drain_dates & ticket_dates)
+        })
+    
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+    
+    
 @app.route("/api/debug/fill-rate-analysis", methods=['GET'])
 def debug_fill_rate_analysis():
     """Analyze why fill rate estimation is failing for some cauldrons"""
