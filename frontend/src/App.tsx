@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, Cell, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Activity, AlertTriangle, TrendingUp, Droplet } from 'lucide-react';
 import './index.css';
 
@@ -221,12 +221,12 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#cecece] w-full text-[#2a2336]">
-      <div className="w-full mx-auto p-6 flex flex-col gap-4">
+    <div className="min-h-screen bg-[#ececec] w-full text-[#190d42] ibm-regular">
+      <div className="w-full mx-auto p-6 flex flex-col gap-2">
         {/* Header */}
         <div className="mb-8 flex justify-between">
           <div>
-            <h1 className="font-bold mb-2">🧙‍♀️ The Brew Report</h1>
+            <h1 className="font-bold cinzel-title mb-2">🧙‍♀️ The Brew Report</h1>
             <p className="text-purple-700">Real-time monitoring of cauldron levels</p>
           </div>
           <button
@@ -266,35 +266,46 @@ const App = () => {
           </div>
         )}
 
-        
-
         {/* Current Levels Bar Chart */}
-        <div className="bg-white/10 rounded-lg p-6 border border-white/20">
-          <h2 className="text-2xl font-bold mb-4">Current Cauldron Levels</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={getBarChartData()}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis dataKey="name" stroke="#fff" />
-              <YAxis stroke="#fff" />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'rgba(0,0,0,0.8)', 
-                  border: 'none', 
-                  borderRadius: '8px',
-                  color: '#fff'
-                }}
-              />
-              <Legend />
-              <Bar dataKey="currentLevel" fill="#8b5cf6" name="Current Level (L)" />
-              <Bar dataKey="maxVolume" fill="#6366f1" name="Max Capacity (L)" />
-            </BarChart>
+        <div className="bg-white/80 rounded-lg p-6 border border-white/20">
+        <h2 className="text-2xl font-bold mb-4">Current Cauldron Levels</h2>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={getBarChartData()}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+            <XAxis dataKey="name" stroke="#190d42" />
+            <YAxis stroke="#190d42" />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                border: 'none',
+                borderRadius: '8px',
+                color: '#fff'
+              }}
+            />
+            <Legend />
+            
+            <Bar dataKey="currentLevel" name="Current Level (L)">
+              {getBarChartData().map((entry, index) => {
+                const percent = entry.currentLevel / entry.maxVolume;
+                let color = '#22c55e'; // green (default)
+
+                if (percent < 0.4) color = '#ef4444'; // red if < 40%
+                else if (percent < 0.75) color = '#eab308'; // yellow if < 75%
+
+                return <Cell key={`cell-${index}`} fill={color} />;
+              })}
+            </Bar>
+
+            <Bar dataKey="maxVolume" fill="#6366f1" name="Max Capacity (L)" />
+          </BarChart>
           </ResponsiveContainer>
-        </div>
+       </div>
+
 
         {/* Cauldron Details Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Cauldron Selection and Line Chart */}
-          <div className="bg-white/10 rounded-lg p-6 border border-white/20">
+          <div className="bg-white/80 rounded-lg p-6 border border-white/20">
             <h2 className="text-2xl font-bold mb-4">Historical Levels</h2>
             
             {/* Cauldron Selector */}
@@ -315,8 +326,8 @@ const App = () => {
                 <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={getChartData()}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                    <XAxis dataKey="time" stroke="#fff" />
-                    <YAxis stroke="#fff" />
+                    <XAxis dataKey="time" stroke="#190d42" />
+                    <YAxis stroke="#190d42" />
                     <Tooltip 
                       contentStyle={{ 
                         backgroundColor: 'rgba(0,0,0,0.8)', 
@@ -341,8 +352,11 @@ const App = () => {
             )}
           </div>
 
-          {/* Cauldron Status List */}
-          <div className="bg-white/10 rounded-lg p-6 border border-white/20">
+          <div className="bg-white/80 rounded-lg p-6 border border-white/20">
+            <h2 className="text-2xl font-bold mb-4">Important Events</h2>
+          </div>
+          
+          {/* <div className="bg-white/80 rounded-lg p-6 border border-white/20">
             <h2 className="text-2xl font-bold mb-4">Cauldron Status</h2>
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {cauldrons.length > 0 ? (
@@ -383,17 +397,17 @@ const App = () => {
                 <p className="text-purple-200">No cauldrons available</p>
               )}
             </div>
-          </div>
+          </div> */}
         </div>
 
         {/* Recent Tickets */}
-        <div className="bg-white/10 rounded-lg p-6 border border-white/20">
-          <h2 className="text-2xl font-bold mb-4">Recent Transport Tickets</h2>
-          <div className="overflow-x-auto">
+        
+        <h2 className="text-3xl font-bold mt-8 ">Recent Transport Tickets</h2>
+        <div className="bg-white/80 rounded-xl overflow-x-auto">
             {tickets.length > 0 ? (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-white/20">
+                  <tr className="border-b border-white/20 bg-gray-300">
                     <th className="text-left py-2 px-4">Ticket ID</th>
                     <th className="text-left py-2 px-4">Cauldron</th>
                     <th className="text-left py-2 px-4">Amount</th>
@@ -401,9 +415,10 @@ const App = () => {
                     <th className="text-left py-2 px-4">Date</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="">
+                  
                   {tickets.slice(-10).reverse().map(ticket => (
-                    <tr key={ticket.ticket_id} className="border-b border-white/10">
+                    <tr key={ticket.ticket_id} className="border-b  border-gray-300 hover:bg-gray-100 transition-colors">
                       <td className="py-2 px-4">{ticket.ticket_id}</td>
                       <td className="py-2 px-4">{ticket.cauldron_id}</td>
                       <td className="py-2 px-4">{ticket.amount_collected}L</td>
@@ -416,7 +431,6 @@ const App = () => {
             ) : (
               <p className="text-purple-200">No tickets available</p>
             )}
-          </div>
         </div>
 
         {/* Footer */}
