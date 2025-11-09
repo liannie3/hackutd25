@@ -12,9 +12,12 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { Activity, AlertTriangle, TrendingUp, Droplet } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, AlertCircle } from "lucide-react";
 import "./index.css";
 import refreshIcon from "./assets/refresh.svg";
+import poyoIcon from "./assets/poyo.png";
+import cauldronIcon from "./assets/cauldron.svg";
+import alertIcon from "./assets/alert.svg";
 
 const App = () => {
   const [cauldrons, setCauldrons] = useState([]);
@@ -27,6 +30,7 @@ const App = () => {
   const [market, setMarket] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const ticketsPerPage = 10;
+  const [annotatedTickets, setAnnotatedTickets] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -73,12 +77,14 @@ const App = () => {
 
       // Fetch tickets
       const ticketRes = await fetch(
-        `/api/Tickets${forceRefresh ? "?forceRefresh=true" : ""}`,
+        `/api/analyze/annotated-tickets${forceRefresh ? "?forceRefresh=true" : ""}`,
       );
       if (!ticketRes.ok)
         throw new Error(`Tickets API returned ${ticketRes.status}`);
       const ticketData = await ticketRes.json();
-      setTickets(ticketData.transport_tickets || []);
+      const tickets = ticketData.tickets || [];
+      setTickets(tickets);
+      setAnnotatedTickets(tickets);
 
       // Set first cauldron as selected by default
       if (cauldronData.length > 0 && !selectedCauldron) {
@@ -139,15 +145,45 @@ const App = () => {
       </div>
     );
   }
-
-  {
-    /*
-    MAIN HERE
-    */
-  }
   const sortedTickets = tickets.sort(
     (a, b) => new Date(b.date) - new Date(a.date),
   );
+
+  const getSeverityBadge = (ticket) => {
+    const isSuspicious =
+      ticket.is_suspicious === true ||
+      ticket.is_suspicious === "true" ||
+      ticket.is_suspicious === 1;
+
+    if (!isSuspicious) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded bg-green-500 px-2 py-1 text-xs font-semibold text-white">
+          <CheckCircle className="h-3 w-3" />
+          VALID
+        </span>
+      );
+    }
+
+    const severity = ticket.suspicion_severity || "medium";
+    const styles = {
+      critical: { bg: "bg-red-500", icon: XCircle },
+      high: { bg: "bg-orange-500", icon: AlertTriangle },
+      medium: { bg: "bg-yellow-500 text-black", icon: AlertCircle },
+    };
+
+    const style = styles[severity] || styles.medium;
+    const Icon = style.icon;
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold ${style.bg} text-white`}
+      >
+        <Icon className="h-3 w-3" />
+        {severity?.toUpperCase() || "SUSPICIOUS"}
+      </span>
+    );
+  };
+
   const totalPages = Math.ceil(sortedTickets.length / ticketsPerPage);
   const indexOfLastTicket = currentPage * ticketsPerPage;
   const indexOfFirstTicket = indexOfLastTicket - ticketsPerPage;
@@ -155,14 +191,24 @@ const App = () => {
     indexOfFirstTicket,
     indexOfLastTicket,
   );
-
+  {
+    /*
+    MAIN HERE
+    */
+  }
   return (
     <div className="ibm-regular min-h-screen w-full bg-zinc-200 text-[#190d42]">
-      <div className="mx-auto flex w-full flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full flex-col gap-3 p-6">
         {/* Header */}
-        <div className="mb-0 flex items-end justify-between">
+        <div className="flex items-end justify-between">
           <div>
-            <h1 className="cinzel-title mb-2 font-bold">🧙‍♀️ The Brew Report</h1>
+            <div className="mb-1 flex items-center gap-2">
+              <img src={poyoIcon} alt="Logo" width={60} height={60} />
+              <h1 className="cinzel-title flex items-center gap-2 font-bold">
+                The Brew Report
+              </h1>
+            </div>
+
             <p className="text-xl font-bold text-[#794B72]">
               What's that? What's abrew?
             </p>
@@ -215,13 +261,18 @@ const App = () => {
         )}
 
         <div className="mb-2 rounded-lg border border-white/20 bg-white/80 p-6">
-          <h2 className="mb-4 text-2xl font-bold">Current Cauldron Levels</h2>
+          <div className="mb-4 flex items-center gap-2">
+            <img
+              src={cauldronIcon}
+              alt="Cauldron icon"
+              width={40}
+              height={40}
+            />
+            <h2 className="text-2xl font-bold">Current Cauldron Levels</h2>
+          </div>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={getBarChartData()} barGap={-40}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(255,255,255,0.1)"
-              />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0)" />
               <XAxis
                 dataKey="name"
                 stroke="#190d42"
@@ -332,7 +383,7 @@ const App = () => {
                   <LineChart data={getChartData()}>
                     <CartesianGrid
                       strokeDasharray="3 3"
-                      stroke="rgba(255,255,255,0.1)"
+                      stroke="rgba(0,0,0,0.15)"
                     />
                     <XAxis dataKey="time" stroke="#190d42" />
                     <YAxis
@@ -380,19 +431,23 @@ const App = () => {
           </div>
 
           <div className="rounded-lg border border-white/20 bg-white/80 p-6">
-            <h2 className="mb-4 text-2xl font-bold">Important Events</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <img src={alertIcon} alt="Alert icon" width={45} height={45} />
+              <h2 className="text-2xl font-bold">Important Events</h2>
+            </div>
           </div>
         </div>
 
         {/* Recent Tickets */}
 
-        <h2 className="mt-8 text-3xl font-bold">Recent Transport Tickets</h2>
+        <h2 className="mt-4 text-3xl font-bold">Recent Transport Tickets</h2>
         <div className="overflow-x-auto rounded-xl bg-white/80">
           {tickets.length > 0 ? (
             <>
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/20 bg-zinc-300">
+                    <th className="px-4 py-2 text-left">Status</th>
                     <th className="px-4 py-2 text-left">Ticket ID</th>
                     <th className="px-4 py-2 text-left">Cauldron</th>
                     <th className="px-4 py-2 text-left">Amount</th>
@@ -401,20 +456,37 @@ const App = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-300">
-                  {currentTickets.map((ticket) => (
-                    <tr
-                      key={ticket.ticket_id}
-                      className="transition-colors hover:bg-gray-100"
-                    >
-                      <td className="px-4 py-2">{ticket.ticket_id}</td>
-                      <td className="px-4 py-2">{ticket.cauldron_id}</td>
-                      <td className="px-4 py-2">{ticket.amount_collected}L</td>
-                      <td className="px-4 py-2">{ticket.courier_id}</td>
-                      <td className="px-4 py-2">
-                        {new Date(ticket.date).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
+                  {currentTickets.map((ticket) => {
+                    const rowClass = ticket.is_suspicious
+                      ? ticket.suspicion_severity === "critical"
+                        ? "bg-red-50 hover:bg-red-100"
+                        : ticket.suspicion_severity === "high"
+                          ? "bg-orange-50 hover:bg-orange-100"
+                          : "bg-yellow-50 hover:bg-yellow-100"
+                      : "hover:bg-gray-100";
+
+                    return (
+                      <tr
+                        key={ticket.ticket_id}
+                        className={`transition-colors ${rowClass}`}
+                      >
+                        <td className="px-4 py-2">
+                          {getSeverityBadge(ticket)}
+                        </td>
+                        <td className="px-4 py-2 font-mono text-sm">
+                          {ticket.ticket_id}
+                        </td>
+                        <td className="px-4 py-2">{ticket.cauldron_id}</td>
+                        <td className="px-4 py-2 font-semibold">
+                          {ticket.amount_collected}L
+                        </td>
+                        <td className="px-4 py-2">{ticket.courier_id}</td>
+                        <td className="px-4 py-2">
+                          {new Date(ticket.date).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -436,7 +508,6 @@ const App = () => {
                     Previous
                   </button>
 
-                  {/* Dropdown Page Selector */}
                   <select
                     value={currentPage}
                     onChange={(e) => setCurrentPage(Number(e.target.value))}
@@ -526,7 +597,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
         return (
           <React.Fragment key={`lon-${i}`}>
             <div
-              className="absolute top-0 bottom-0 border-l border-white/10"
+              className="absolute top-0 bottom-0 border-l border-black/10"
               style={{ left: `${x}%` }}
             />
             <div
@@ -545,7 +616,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
         return (
           <React.Fragment key={`lat-${i}`}>
             <div
-              className="absolute right-0 left-0 border-t border-white/10"
+              className="absolute right-0 left-0 border-t border-black/10"
               style={{ top: `${y}%` }}
             />
             <div
