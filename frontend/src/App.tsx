@@ -20,6 +20,7 @@ import cauldronIcon from "./assets/cauldron.svg";
 import alertIcon from "./assets/alert.svg";
 import clockIcon from "./assets/clock.svg";
 import catIcon from "./assets/cat.png";
+import marketIcon from "./assets/market.svg";
 
 const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
@@ -152,9 +153,11 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
             transform: "translate(-50%, -50%)",
           }}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-[#190d42] shadow-lg">
-            ✦
-          </div>
+          <img
+            src={marketIcon} // your icon path or variable
+            alt="Market icon"
+            className="h-12 w-12"
+          />
           <p className="mt-1 rounded bg-black/50 px-1 text-center text-[11px] text-yellow-200">
             {market.name}
           </p>
