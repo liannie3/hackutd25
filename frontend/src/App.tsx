@@ -176,6 +176,10 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const ticketsPerPage = 10;
   const [annotatedTickets, setAnnotatedTickets] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [loadingDateData, setLoadingDateData] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -232,7 +236,7 @@ const App = () => {
       setAnnotatedTickets(tickets);
 
       // Set first cauldron as selected by default
-      if (cauldronData.length > 0 && selectedCauldron === null) {
+      if (cauldronData.length > 0 && selectedCauldron == null) {
         setSelectedCauldron(cauldronData[0].id);
       }
 
@@ -247,16 +251,55 @@ const App = () => {
       setLoading(false);
     }
   };
+  const dateToUnixTimestamp = (dateString) => {
+    return Math.floor(new Date(dateString).getTime() / 1000);
+  };
+
+  const fetchDataForDate = async (date) => {
+    try {
+      setLoadingDateData(true);
+
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const startTimestamp = dateToUnixTimestamp(startOfDay.toISOString());
+      const endTimestamp = dateToUnixTimestamp(endOfDay.toISOString());
+
+      const dataRes = await fetch(
+        `/api/Data?start_date=${startTimestamp}&end_date=${endTimestamp}`,
+      );
+      if (!dataRes.ok) throw new Error(`Data API returned ${dataRes.status}`);
+      const histData = await dataRes.json();
+
+      setHistoricalData(histData);
+    } catch (err) {
+      console.error("Error fetching date data:", err);
+      setHistoricalData([]);
+    } finally {
+      setLoadingDateData(false);
+    }
+  };
 
   // Prepare chart data for selected cauldron
   const getChartData = () => {
-    if (!selectedCauldron || historicalData.length === 0) return [];
+    if (!selectedCauldron || !historicalData.length) return [];
 
-    // Take last 100 data points for visualization
-    return historicalData.slice(-100).map((entry) => ({
-      time: new Date(entry.timestamp).toLocaleTimeString(),
-      level:
-        (entry.cauldron_levels && entry.cauldron_levels[selectedCauldron]) || 0,
+    // Filter historical data for the selected date
+    const filteredData = historicalData.filter((dataPoint) => {
+      const dataDate = new Date(dataPoint.timestamp)
+        .toISOString()
+        .split("T")[0];
+      return dataDate === selectedDate;
+    });
+
+    return filteredData.map((dataPoint) => ({
+      time: new Date(dataPoint.timestamp).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      level: dataPoint.cauldron_levels?.[selectedCauldron] || 0,
     }));
   };
   const chartData = getChartData();
@@ -410,8 +453,8 @@ const App = () => {
                 tickFormatter={(value) => value.split(" ")[0]}
                 interval={0}
                 angle={-30}
-                textAnchor="end" 
-                height={60}
+                textAnchor="end"
+                height={55}
               />
               <YAxis stroke="#190d42" />
               <Tooltip
@@ -498,7 +541,7 @@ const App = () => {
         {/* Cauldron Details Grid */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Cauldron Selection and Line Chart */}
-          <div className="rounded-lg border border-white/20 bg-white/80 p-6">
+          <div className="flex h-[500px] flex-col rounded-lg border border-white/20 bg-white/80 p-6">
             <div className="mb-4 flex items-center gap-2">
               <img src={clockIcon} alt="Clock icon" width={45} height={45} />
               <h2 className="text-2xl font-bold">Historical Levels</h2>
@@ -518,65 +561,104 @@ const App = () => {
                     </option>
                   ))}
                 </select>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={getChartData()}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="rgba(0,0,0,0.15)"
-                    />
-                    <XAxis dataKey="time" stroke="#190d42" minTickGap={50} />
-                    <YAxis
-                      stroke="#190d42"
-                      domain={[minLevel, maxLevel]}
-                      tickFormatter={(value) => value.toFixed(1)}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "rgba(0,0,0,0.9)",
-                        border: "none",
-                        borderRadius: "8px",
-                        color: "#fff",
-                      }}
-                      formatter={(value) => {
-                        const selectedCauldronData = cauldrons.find(
-                          (c) => c.id === selectedCauldron,
-                        );
-                        if (selectedCauldronData) {
-                          const percent = (
-                            (value / selectedCauldronData.max_volume) *
-                            100
-                          ).toFixed(0);
-                          return [
-                            `${value}/${selectedCauldronData.max_volume} L (${percent}%)`,
-                          ];
-                        }
-                        return [value, "Level (L)"];
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="level"
-                      stroke="#b369a7"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Level (L)"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+
+                {/* Date Selector */}
+                <div className="mb-4 flex gap-2">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    max={new Date().toISOString().split("T")[0]}
+                    className="flex-1 rounded-lg border border-gray-400 bg-white/20 px-4 py-2"
+                    disabled={loadingDateData}
+                  />
+                  <button
+                    onClick={() => fetchDataForDate(selectedDate)}
+                    className="cursor-pointer rounded-lg bg-[#794B72] px-4 py-2 text-white hover:bg-[#673560] disabled:opacity-50"
+                    disabled={loadingDateData}
+                  >
+                    {loadingDateData ? "Loading..." : "View"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split("T")[0];
+                      setSelectedDate(today);
+                      fetchDataForDate(today);
+                    }}
+                    className="cursor-pointer rounded-lg border border-gray-400 px-4 py-2 text-[#190d42] hover:bg-gray-200 disabled:opacity-50"
+                    disabled={loadingDateData}
+                  >
+                    Today
+                  </button>
+                </div>
+
+                {loadingDateData && (
+                  <p className="mb-2 text-sm text-[#794B72]">
+                    Loading data for {selectedDate}...
+                  </p>
+                )}
+
+                <div className="min-h-0 flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={getChartData()}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="rgba(0,0,0,0.15)"
+                      />
+                      <XAxis dataKey="time" stroke="#190d42" minTickGap={50} />
+                      <YAxis
+                        stroke="#190d42"
+                        domain={[minLevel, maxLevel]}
+                        tickFormatter={(value) => value.toFixed(1)}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "rgba(0,0,0,0.9)",
+                          border: "none",
+                          borderRadius: "8px",
+                          color: "#fff",
+                        }}
+                        formatter={(value) => {
+                          const selectedCauldronData = cauldrons.find(
+                            (c) => c.id === selectedCauldron,
+                          );
+                          if (selectedCauldronData) {
+                            const percent = (
+                              (value / selectedCauldronData.max_volume) *
+                              100
+                            ).toFixed(0);
+                            return [
+                              `${value}/${selectedCauldronData.max_volume} L (${percent}%)`,
+                            ];
+                          }
+                          return [value, "Level (L)"];
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="level"
+                        stroke="#b369a7"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Level (L)"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </>
             ) : (
               <p className="text-purple-800">No cauldrons available</p>
             )}
           </div>
 
-          <div className="rounded-lg border border-white/20 bg-white/80 p-6">
+          <div className="flex h-[500px] flex-col rounded-lg border border-white/20 bg-white/80 p-6">
             <div className="mb-4 flex items-center gap-2">
               <img src={alertIcon} alt="Alert icon" width={45} height={45} />
               <h2 className="text-2xl font-bold">Important Events</h2>
             </div>
 
             {/* Show recent suspicious tickets */}
-            <div className="max-h-[300px] space-y-3 overflow-y-auto">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
               {sortedTickets
                 .filter((ticket) => ticket.is_suspicious)
                 .slice(0, 5)
