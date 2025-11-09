@@ -135,7 +135,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
             >
               {Math.round(fillPercent)}%
             </div>
-            <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-white">
+            <p className="mt-1 rounded bg-black/50 px-1 text-center text-[11px] text-white">
               {c.name || c.id}
             </p>
           </div>
@@ -152,10 +152,10 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
             transform: "translate(-50%, -50%)",
           }}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-black shadow-lg">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-[#190d42] shadow-lg">
             ✦
           </div>
-          <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-yellow-200">
+          <p className="mt-1 rounded bg-black/50 px-1 text-center text-[11px] text-yellow-200">
             {market.name}
           </p>
         </div>
@@ -436,7 +436,7 @@ const App = () => {
                         }}
                       >
                         <p>{data.name}</p>
-                        <p style={{ color: "#8b5cf6" }}>
+                        <p style={{ color: "#b369a7" }}>
                           {data.currentLevel}/{data.maxVolume} L ({percent}%)
                         </p>
                       </div>
@@ -448,7 +448,7 @@ const App = () => {
               <Bar
                 dataKey="maxVolume"
                 fillOpacity={0}
-                fill="#8b5cf6"
+                fill="#b369a7"
                 name="Max Capacity (L)"
                 barSize={40}
               >
@@ -472,7 +472,7 @@ const App = () => {
 
               <Bar
                 dataKey="currentLevel"
-                fill="#8b5cf6"
+                fill="#b369a7"
                 name="Current Level (L)"
                 barSize={40}
               >
@@ -552,7 +552,7 @@ const App = () => {
                     <Line
                       type="monotone"
                       dataKey="level"
-                      stroke="#8b5cf6"
+                      stroke="#b369a7"
                       strokeWidth={2}
                       dot={false}
                       name="Level (L)"
