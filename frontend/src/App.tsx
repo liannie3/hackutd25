@@ -344,15 +344,16 @@ const App = () => {
         <div className="flex items-end justify-between">
           <div>
             <div className="mb-1 flex items-center gap-2">
-              <img src={poyoIcon} alt="Logo" width={60} height={60} />
-              <h1 className="cinzel-title flex items-center gap-2 font-bold">
-                The Brew Report
-              </h1>
+              <img src={poyoIcon} alt="Logo" width={70} height={70} />
+              <div className="flex flex-col">
+                <h1 className="cinzel-title flex items-center gap-2 font-bold">
+                  The Brew Report
+                </h1>
+                <p className="text-xl font-bold text-[#794B72]">
+                  What's that? What's abrew?
+                </p>
+              </div>
             </div>
-
-            <p className="text-xl font-bold text-[#794B72]">
-              What's that? What's abrew?
-            </p>
           </div>
           <button
             onClick={() => fetchData(true)}
