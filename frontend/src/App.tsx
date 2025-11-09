@@ -7,7 +7,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
     return (
       <div className="h-[400px] w-full flex items-center justify-center rounded-lg border border-white/20 bg-black/20">
-        <p className="text-white">No cauldrons available for map display</p>
+        <p className="">No cauldrons available for map display</p>
       </div>
     );
   }
@@ -39,7 +39,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
               style={{ left: `${x}%` }}
             />
             <div
-              className="absolute bottom-0 text-[10px] text-white/60 transform translate-x-[-50%]"
+              className="absolute bottom-0 text-[10px] transform translate-x-[-50%]"
               style={{ left: `${x}%`, paddingBottom: '2px' }}
             >
               {lon.toFixed(3)}°
@@ -58,7 +58,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
               style={{ top: `${y}%` }}
             />
             <div
-              className="absolute left-0 text-[10px] text-white/60 transform translate-y-[-50%] pl-1"
+              className="absolute left-0 text-[10px] transform translate-y-[-50%] pl-1"
               style={{ top: `${y}%` }}
             >
               {lat.toFixed(3)}°
@@ -90,7 +90,7 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
             }}
           >
             <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white text-xs ${color}`}
+              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-xs ${color}`}
               style={{ opacity: 0.85 }}
             >
               {Math.round(fillPercent)}%
@@ -221,17 +221,17 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-indigo-900 w-full text-white">
+    <div className="min-h-screen bg-[#cecece] w-full text-[#2a2336]">
       <div className="w-full mx-auto p-6 flex flex-col gap-4">
         {/* Header */}
         <div className="mb-8 flex justify-between">
           <div>
             <h1 className="font-bold mb-2">🧙‍♀️ The Brew Report</h1>
-            <p className="text-purple-200">Real-time monitoring of cauldron levels</p>
+            <p className="text-purple-700">Real-time monitoring of cauldron levels</p>
           </div>
           <button
             onClick={() => fetchData(true)}
-            className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
+            className="mt-4 bg-blue-500 text-white hover:bg-blue-600px-4 py-2 rounded-lg transition-colors"
             disabled={loading}
           >
             {loading ? '⏳ Loading...' : '🔁 Force Refresh'}
@@ -303,7 +303,7 @@ const App = () => {
                 <select
                   value={selectedCauldron || ''}
                   onChange={(e) => setSelectedCauldron(e.target.value)}
-                  className="w-full bg-white/20 text-white px-4 py-2 rounded-lg mb-4 border border-white/30"
+                  className="w-full bg-white/20 px-4 py-2 rounded-lg mb-4 border border-white/30"
                 >
                   {cauldrons.map(cauldron => (
                     <option key={cauldron.id} value={cauldron.id}>
@@ -337,7 +337,7 @@ const App = () => {
                 </ResponsiveContainer>
               </>
             ) : (
-              <p className="text-purple-200">No cauldrons available</p>
+              <p className="text-purple-800">No cauldrons available</p>
             )}
           </div>
 
@@ -373,7 +373,7 @@ const App = () => {
                           style={{ width: `${Math.min(percentage, 100)}%` }}
                         />
                       </div>
-                      <div className="text-xs text-purple-200 mt-1">
+                      <div className="text-xs mt-1">
                         {percentage.toFixed(1)}% full
                       </div>
                     </div>
@@ -420,7 +420,7 @@ const App = () => {
         </div>
 
         {/* Footer */}
-        <div className="mt-6 text-center text-purple-200 text-sm">
+        <div className="mt-6 text-center text-sm">
           Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every 10s
         </div>
       </div>
