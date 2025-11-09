@@ -19,6 +19,149 @@ import poyoIcon from "./assets/poyo.png";
 import cauldronIcon from "./assets/cauldron.svg";
 import alertIcon from "./assets/alert.svg";
 
+const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
+  if (!cauldrons?.length) {
+    return (
+      <div className="flex h-[400px] w-full items-center justify-center rounded-lg border border-white/20 bg-black/20">
+        <p className="">No cauldrons available for map display</p>
+      </div>
+    );
+  }
+
+  const lats = cauldrons.map((c) => c.latitude);
+  const lons = cauldrons.map((c) => c.longitude);
+
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons);
+  const maxLon = Math.max(...lons);
+
+  // 🧭 Add padding so markers at the edges aren't clipped
+  const paddingFactor = 0.15; // 5% of range on each side
+  const latRange = maxLat - minLat;
+  const lonRange = maxLon - minLon;
+
+  const paddedMinLat = minLat - latRange * paddingFactor;
+  const paddedMaxLat = maxLat + latRange * paddingFactor;
+  const paddedMinLon = minLon - lonRange * paddingFactor;
+  const paddedMaxLon = maxLon + lonRange * paddingFactor;
+
+  const normalize = (val, min, max) => ((val - min) / (max - min)) * 100;
+
+  // Generate 5 evenly spaced grid markers for each axis (using padded range)
+  const latTicks = Array.from(
+    { length: 5 },
+    (_, i) => paddedMinLat + ((paddedMaxLat - paddedMinLat) / 4) * i,
+  );
+  const lonTicks = Array.from(
+    { length: 5 },
+    (_, i) => paddedMinLon + ((paddedMaxLon - paddedMinLon) / 4) * i,
+  );
+
+  return (
+    <div className="relative mb-2 h-[300px] w-full overflow-hidden rounded-lg border border-white/20 bg-white/60">
+      {/* 🗺️ Grid Lines and Labels */}
+      {/* Vertical (Longitude) lines */}
+      {lonTicks.map((lon, i) => {
+        const x = normalize(lon, paddedMinLon, paddedMaxLon);
+        return (
+          <React.Fragment key={`lon-${i}`}>
+            <div
+              className="absolute top-0 bottom-0 border-l border-black/10"
+              style={{ left: `${x}%` }}
+            />
+            <div
+              className="absolute bottom-0 translate-x-[-50%] transform text-[10px]"
+              style={{ left: `${x}%`, paddingBottom: "2px" }}
+            >
+              {lon.toFixed(3)}°
+            </div>
+          </React.Fragment>
+        );
+      })}
+
+      {/* Horizontal (Latitude) lines */}
+      {latTicks.map((lat, i) => {
+        const y = 100 - normalize(lat, paddedMinLat, paddedMaxLat);
+        return (
+          <React.Fragment key={`lat-${i}`}>
+            <div
+              className="absolute right-0 left-0 border-t border-black/10"
+              style={{ top: `${y}%` }}
+            />
+            <div
+              className="absolute left-0 translate-y-[-50%] transform pl-1 text-[10px]"
+              style={{ top: `${y}%` }}
+            >
+              {lat.toFixed(3)}°
+            </div>
+          </React.Fragment>
+        );
+      })}
+
+      {/* 🧪 Cauldron markers */}
+      {cauldrons.map((c) => {
+        const level = currentLevels[c.id] || 0;
+        const fillPercent = Math.min((level / c.max_volume) * 100, 100);
+
+        let color = "bg-[#2E404A]"; // green (default)
+        let textColor = "text-white"; // white text for green
+
+        if (fillPercent < 40) {
+          color = "bg-[#794B72]"; // red if < 40%
+        } else if (fillPercent < 75) {
+          color = "bg-[#e6d18c]"; // yellow if < 75%
+          textColor = "text-[#190d42]";
+        }
+
+        const x = normalize(c.longitude, paddedMinLon, paddedMaxLon);
+        const y = 100 - normalize(c.latitude, paddedMinLat, paddedMaxLat);
+
+        return (
+          <div
+            key={c.id}
+            className="absolute flex flex-col items-center"
+            style={{
+              left: `${x}%`,
+              top: `${y}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold ${color} ${textColor}`}
+              style={{ opacity: 0.85 }}
+            >
+              {Math.round(fillPercent)}%
+            </div>
+            <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-white">
+              {c.name || c.id}
+            </p>
+          </div>
+        );
+      })}
+
+      {/* 🏪 Market marker */}
+      {market && (
+        <div
+          className="absolute flex flex-col items-center"
+          style={{
+            left: `${normalize(market.longitude, paddedMinLon, paddedMaxLon)}%`,
+            top: `${100 - normalize(market.latitude, paddedMinLat, paddedMaxLat)}%`,
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-black shadow-lg">
+            ✦
+          </div>
+          <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-yellow-200">
+            {market.name}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const App = () => {
   const [cauldrons, setCauldrons] = useState([]);
   const [currentLevels, setCurrentLevels] = useState({});
@@ -138,17 +281,6 @@ const App = () => {
     }));
   };
 
-  if (loading && cauldrons.length === 0) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900">
-        <div className="text-2xl text-white">Loading potion data... 🧙‍♀️</div>
-      </div>
-    );
-  }
-  const sortedTickets = tickets.sort(
-    (a, b) => new Date(b.date) - new Date(a.date),
-  );
-
   const getSeverityBadge = (ticket) => {
     const isSuspicious =
       ticket.is_suspicious === true ||
@@ -184,6 +316,18 @@ const App = () => {
     );
   };
 
+  if (loading && cauldrons.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900">
+        <div className="text-2xl text-white">Loading potion data... 🧙‍♀️</div>
+      </div>
+    );
+  }
+
+  const sortedTickets = tickets.sort(
+    (a, b) => new Date(b.date) - new Date(a.date),
+  );
+
   const totalPages = Math.ceil(sortedTickets.length / ticketsPerPage);
   const indexOfLastTicket = currentPage * ticketsPerPage;
   const indexOfFirstTicket = indexOfLastTicket - ticketsPerPage;
@@ -191,11 +335,7 @@ const App = () => {
     indexOfFirstTicket,
     indexOfLastTicket,
   );
-  {
-    /*
-    MAIN HERE
-    */
-  }
+
   return (
     <div className="ibm-regular min-h-screen w-full bg-zinc-200 text-[#190d42]">
       <div className="mx-auto flex w-full flex-col gap-3 p-6">
@@ -240,25 +380,13 @@ const App = () => {
             </button>
           </div>
         )}
+
         {/* 🗺️ Grid-based Map Visualization */}
         <CauldronGridMap
           cauldrons={cauldrons}
           currentLevels={currentLevels}
           market={market}
         />
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-500 bg-red-500/20 p-4">
-            <p className="text-red-200">{error}</p>
-            <button
-              onClick={() => fetchData(false)}
-              className="mt-2 rounded bg-red-500 px-4 py-2 transition-colors hover:bg-red-600"
-            >
-              Retry
-            </button>
-          </div>
-        )}
 
         <div className="mb-2 rounded-lg border border-white/20 bg-white/80 p-6">
           <div className="mb-4 flex items-center gap-2">
@@ -435,6 +563,63 @@ const App = () => {
               <img src={alertIcon} alt="Alert icon" width={45} height={45} />
               <h2 className="text-2xl font-bold">Important Events</h2>
             </div>
+
+            {/* Show recent suspicious tickets */}
+            <div className="max-h-[300px] space-y-3 overflow-y-auto">
+              {sortedTickets
+                .filter((ticket) => ticket.is_suspicious)
+                .slice(0, 5)
+                .map((ticket) => {
+                  const severity = ticket.suspicion_severity || "medium";
+                  const severityColors = {
+                    critical: "border-red-500 bg-red-50",
+                    high: "border-orange-500 bg-orange-50",
+                    medium: "border-yellow-500 bg-yellow-50",
+                  };
+                  const bgColor =
+                    severityColors[severity] || severityColors.medium;
+
+                  return (
+                    <div
+                      key={ticket.ticket_id}
+                      className={`rounded-lg border-l-4 p-3 ${bgColor}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="mb-1 flex items-center gap-2">
+                            {getSeverityBadge(ticket)}
+                            <span className="font-mono text-xs text-gray-600">
+                              {ticket.ticket_id}
+                            </span>
+                          </div>
+                          <p className="text-sm font-semibold">
+                            {ticket.cauldron_id} • {ticket.amount_collected}L
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            Courier: {ticket.courier_id} •{" "}
+                            {new Date(ticket.date).toLocaleDateString()}
+                          </p>
+                          {ticket.suspicion_reason && (
+                            <p className="mt-1 text-xs text-gray-700 italic">
+                              {ticket.suspicion_reason}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {sortedTickets.filter((ticket) => ticket.is_suspicious).length ===
+                0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <CheckCircle className="mb-2 h-12 w-12 text-green-600" />
+                  <p className="text-sm text-gray-600">
+                    No suspicious activity detected
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -545,149 +730,6 @@ const App = () => {
           10s
         </div>
       </div>
-    </div>
-  );
-};
-
-const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
-  if (!cauldrons?.length) {
-    return (
-      <div className="flex h-[400px] w-full items-center justify-center rounded-lg border border-white/20 bg-black/20">
-        <p className="">No cauldrons available for map display</p>
-      </div>
-    );
-  }
-
-  const lats = cauldrons.map((c) => c.latitude);
-  const lons = cauldrons.map((c) => c.longitude);
-
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-
-  // 🧭 Add padding so markers at the edges aren't clipped
-  const paddingFactor = 0.15; // 5% of range on each side
-  const latRange = maxLat - minLat;
-  const lonRange = maxLon - minLon;
-
-  const paddedMinLat = minLat - latRange * paddingFactor;
-  const paddedMaxLat = maxLat + latRange * paddingFactor;
-  const paddedMinLon = minLon - lonRange * paddingFactor;
-  const paddedMaxLon = maxLon + lonRange * paddingFactor;
-
-  const normalize = (val, min, max) => ((val - min) / (max - min)) * 100;
-
-  // Generate 5 evenly spaced grid markers for each axis (using padded range)
-  const latTicks = Array.from(
-    { length: 5 },
-    (_, i) => paddedMinLat + ((paddedMaxLat - paddedMinLat) / 4) * i,
-  );
-  const lonTicks = Array.from(
-    { length: 5 },
-    (_, i) => paddedMinLon + ((paddedMaxLon - paddedMinLon) / 4) * i,
-  );
-
-  return (
-    <div className="relative mb-2 h-[300px] w-full overflow-hidden rounded-lg border border-white/20 bg-white/60">
-      {/* 🗺️ Grid Lines and Labels */}
-      {/* Vertical (Longitude) lines */}
-      {lonTicks.map((lon, i) => {
-        const x = normalize(lon, paddedMinLon, paddedMaxLon);
-        return (
-          <React.Fragment key={`lon-${i}`}>
-            <div
-              className="absolute top-0 bottom-0 border-l border-black/10"
-              style={{ left: `${x}%` }}
-            />
-            <div
-              className="absolute bottom-0 translate-x-[-50%] transform text-[10px]"
-              style={{ left: `${x}%`, paddingBottom: "2px" }}
-            >
-              {lon.toFixed(3)}°
-            </div>
-          </React.Fragment>
-        );
-      })}
-
-      {/* Horizontal (Latitude) lines */}
-      {latTicks.map((lat, i) => {
-        const y = 100 - normalize(lat, paddedMinLat, paddedMaxLat);
-        return (
-          <React.Fragment key={`lat-${i}`}>
-            <div
-              className="absolute right-0 left-0 border-t border-black/10"
-              style={{ top: `${y}%` }}
-            />
-            <div
-              className="absolute left-0 translate-y-[-50%] transform pl-1 text-[10px]"
-              style={{ top: `${y}%` }}
-            >
-              {lat.toFixed(3)}°
-            </div>
-          </React.Fragment>
-        );
-      })}
-
-      {/* 🧪 Cauldron markers */}
-      {cauldrons.map((c) => {
-        const level = currentLevels[c.id] || 0;
-        const fillPercent = Math.min((level / c.max_volume) * 100, 100);
-
-        let color = "bg-[#2E404A]"; // green (default)
-        let textColor = "text-white"; // white text for green
-
-        if (fillPercent < 40) {
-          color = "bg-[#794B72]"; // red if < 40%
-        } else if (fillPercent < 75) {
-          color = "bg-[#e6d18c]"; // yellow if < 75%
-          textColor = "text-[#190d42]";
-        }
-
-        const x = normalize(c.longitude, paddedMinLon, paddedMaxLon);
-        const y = 100 - normalize(c.latitude, paddedMinLat, paddedMaxLat);
-
-        return (
-          <div
-            key={c.id}
-            className="absolute flex flex-col items-center"
-            style={{
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold ${color} ${textColor}`}
-              style={{ opacity: 0.85 }}
-            >
-              {Math.round(fillPercent)}%
-            </div>
-            <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-white">
-              {c.name || c.id}
-            </p>
-          </div>
-        );
-      })}
-
-      {/* 🏪 Market marker */}
-      {market && (
-        <div
-          className="absolute flex flex-col items-center"
-          style={{
-            left: `${normalize(market.longitude, paddedMinLon, paddedMaxLon)}%`,
-            top: `${100 - normalize(market.latitude, paddedMinLat, paddedMaxLat)}%`,
-            transform: "translate(-50%, -50%)",
-          }}
-        >
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-black shadow-lg">
-            ✦
-          </div>
-          <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-yellow-200">
-            {market.name}
-          </p>
-        </div>
-      )}
     </div>
   );
 };
