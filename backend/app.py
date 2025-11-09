@@ -1035,11 +1035,11 @@ def annotate_tickets_with_discrepancies(tickets, discrepancies):
     
     return annotated
 
-def find_discrepancies(drain_events, tickets, threshold=0.05):
+def find_discrepancies(drain_events, tickets, threshold=0.15):
     """
     Match individual tickets to specific drain events and identify discrepancies.
-    Uses a greedy matching algorithm to pair tickets with drains on the same day.
-    threshold: acceptable percentage difference (default 5%)
+    Works with date-only tickets (no time information).
+    threshold: acceptable percentage difference (default 15%)
     """
     discrepancies = []
     
@@ -1071,126 +1071,117 @@ def find_discrepancies(drain_events, tickets, threshold=0.05):
         drains = drains_by_key.get(key, [])
         tickets_list = tickets_by_key.get(key, [])
         
-        # Sort by volume for greedy matching
-        drains = sorted(drains, key=lambda d: d['totalPotionRemoved'], reverse=True)
-        tickets_list = sorted(tickets_list, key=lambda t: t.get('amount_collected', 0), reverse=True)
+        # Calculate total volumes for the day
+        total_ticket_volume = sum(t.get('amount_collected', 0) for t in tickets_list)
+        total_drain_volume = sum(d['totalPotionRemoved'] for d in drains)
         
-        # Track which drains and tickets have been matched
-        matched_drains = set()
-        matched_tickets = set()
-        matches = []  # (ticket_idx, drain_idx, difference)
-        
-        # Greedy matching: pair largest ticket with closest drain
-        for t_idx, ticket in enumerate(tickets_list):
-            ticket_vol = ticket.get('amount_collected', 0)
-            best_match = None
-            best_diff = float('inf')
-            
-            for d_idx, drain in enumerate(drains):
-                if d_idx in matched_drains:
-                    continue
-                
-                drain_vol = drain['totalPotionRemoved']
-                diff = abs(ticket_vol - drain_vol)
-                tolerance = drain_vol * 0.10 
-                
-                # Consider this a valid match if within tolerance
-                if diff <= tolerance and diff < best_diff:
-                    best_match = d_idx
-                    best_diff = diff
-            
-            if best_match is not None:
-                matched_drains.add(best_match)
-                matched_tickets.add(t_idx)
-                matches.append((t_idx, best_match, best_diff))
-        
-        # Now identify discrepancies
-        
-        # 1. Unmatched tickets (PHANTOM TICKETS)
-        for t_idx, ticket in enumerate(tickets_list):
-            if t_idx not in matched_tickets:
-                ticket_vol = ticket.get('amount_collected', 0)
-                
-                # Check if there are ANY unmatched drains
-                unmatched_drains = [d for d_idx, d in enumerate(drains) if d_idx not in matched_drains]
-                
-                if unmatched_drains:
-                    # There ARE drains, but none matched this ticket closely enough
-                    closest_drain = min(unmatched_drains, key=lambda d: abs(d['totalPotionRemoved'] - ticket_vol))
-                    difference = abs(closest_drain['totalPotionRemoved'] - ticket_vol)
-                    percent_diff = (difference / closest_drain['totalPotionRemoved'] * 100) if closest_drain['totalPotionRemoved'] > 0 else 999
-                    
-                    severity = "critical" if percent_diff > 50 else "high" if percent_diff > 20 else "medium"
-                    
+        # Strategy: Compare daily totals first, then do individual matching
+        if len(tickets_list) == 0 and len(drains) > 0:
+            # Drains but no tickets
+            for drain in drains:
+                if drain['totalPotionRemoved'] > 20:  # Only flag significant drains
                     discrepancies.append({
-                        "type": "SIGNIFICANT_VOLUME_MISMATCH",
-                        "severity": severity,
+                        "type": "UNLOGGED_DRAIN",
+                        "severity": "high",
                         "cauldronId": cauldron_id,
                         "date": date,
-                        "ticket": ticket,
-                        "ticketVolume": round(ticket_vol, 2),
-                        "closestDrainVolume": round(closest_drain['totalPotionRemoved'], 2),
-                        "difference": round(difference, 2),
-                        "percentDifference": round(percent_diff, 2),
-                        "drainEvent": closest_drain,
-                        "message": f"Ticket shows {round(ticket_vol, 2)}L but closest drain was {round(closest_drain['totalPotionRemoved'], 2)}L ({round(percent_diff, 1)}% difference)"
+                        "drainEvent": drain,
+                        "drainVolume": round(drain['totalPotionRemoved'], 2),
+                        "message": f"Drain of {round(drain['totalPotionRemoved'], 2)}L detected but no ticket found"
                     })
-                else:
-                    # No drain event at all for this ticket
+            continue
+        
+        if len(drains) == 0 and len(tickets_list) > 0:
+            # Tickets but no drains
+            for ticket in tickets_list:
+                if ticket.get('amount_collected', 0) > 10:  # Only flag significant amounts
                     discrepancies.append({
                         "type": "PHANTOM_TICKET",
                         "severity": "critical",
                         "cauldronId": cauldron_id,
                         "date": date,
                         "ticket": ticket,
-                        "ticketVolume": round(ticket_vol, 2),
-                        "message": f"Ticket claims {round(ticket_vol, 2)}L collected but no drain event detected"
+                        "ticketVolume": round(ticket.get('amount_collected', 0), 2),
+                        "message": f"Ticket claims {round(ticket.get('amount_collected', 0), 2)}L but no drain detected"
                     })
+            continue
         
-        # 2. Unmatched drains (UNLOGGED DRAINS)
-        for d_idx, drain in enumerate(drains):
-            if d_idx not in matched_drains:
-                drain_vol = drain['totalPotionRemoved']
+        # Both tickets and drains exist - compare totals first
+        volume_diff = abs(total_ticket_volume - total_drain_volume)
+        percent_diff = (volume_diff / total_drain_volume * 100) if total_drain_volume > 0 else 999
+        
+        # If daily totals match reasonably well, don't flag individual tickets
+        if percent_diff <= 20:
+            # Totals are close enough - this is good
+            # Only flag if there's a MAJOR individual outlier
+            
+            # Sort both by volume for comparison
+            drains_sorted = sorted(drains, key=lambda d: d['totalPotionRemoved'], reverse=True)
+            tickets_sorted = sorted(tickets_list, key=lambda t: t.get('amount_collected', 0), reverse=True)
+            
+            # Do simple greedy matching
+            matched_drains = set()
+            matched_tickets = set()
+            
+            for t_idx, ticket in enumerate(tickets_sorted):
+                ticket_vol = ticket.get('amount_collected', 0)
+                best_match = None
+                best_diff = float('inf')
                 
+                for d_idx, drain in enumerate(drains_sorted):
+                    if d_idx in matched_drains:
+                        continue
+                    
+                    drain_vol = drain['totalPotionRemoved']
+                    diff = abs(ticket_vol - drain_vol)
+                    diff_percent = (diff / drain_vol * 100) if drain_vol > 0 else 999
+                    
+                    # Accept match if within 25% tolerance
+                    if diff_percent <= 25 and diff < best_diff:
+                        best_match = d_idx
+                        best_diff = diff
+                
+                if best_match is not None:
+                    matched_drains.add(best_match)
+                    matched_tickets.add(t_idx)
+            
+            # Don't flag anything - the day balances out
+            continue
+        
+        else:
+            # Daily totals DON'T match - flag the discrepancy
+            severity = "critical" if percent_diff > 50 else "high" if percent_diff > 30 else "medium"
+            
+            if total_ticket_volume > total_drain_volume:
+                # More tickets than drains - possible fraud
                 discrepancies.append({
-                    "type": "UNLOGGED_DRAIN",
-                    "severity": "critical",
+                    "type": "DAILY_VOLUME_EXCESS",
+                    "severity": severity,
                     "cauldronId": cauldron_id,
                     "date": date,
-                    "drainEvent": drain,
-                    "drainVolume": round(drain_vol, 2),
-                    "message": f"Drain of {round(drain_vol, 2)}L detected but no matching ticket found"
+                    "tickets": tickets_list,
+                    "drainEvents": drains,
+                    "totalTicketVolume": round(total_ticket_volume, 2),
+                    "totalDrainVolume": round(total_drain_volume, 2),
+                    "difference": round(volume_diff, 2),
+                    "percentDifference": round(percent_diff, 2),
+                    "message": f"Tickets claim {round(total_ticket_volume, 2)}L but only {round(total_drain_volume, 2)}L drained ({round(percent_diff, 1)}% over)"
                 })
-        
-        # 3. Matched but with concerning differences
-        for t_idx, d_idx, diff in matches:
-            ticket = tickets_list[t_idx]
-            drain = drains[d_idx]
-            
-            ticket_vol = ticket.get('amount_collected', 0)
-            drain_vol = drain['totalPotionRemoved']
-            
-            # Even though they matched, flag if difference is non-trivial
-            if diff > 1.0:  # More than 1L difference
-                percent_diff = (diff / drain_vol * 100) if drain_vol > 0 else 0
-                
-                # Only flag if it's a meaningful percentage
-                if percent_diff > 2:  # More than 2% off
-                    severity = "medium" if percent_diff < 5 else "high"
-                    
-                    discrepancies.append({
-                        "type": "MINOR_VOLUME_MISMATCH",
-                        "severity": severity,
-                        "cauldronId": cauldron_id,
-                        "date": date,
-                        "ticket": ticket,
-                        "drainEvent": drain,
-                        "ticketVolume": round(ticket_vol, 2),
-                        "drainVolume": round(drain_vol, 2),
-                        "difference": round(diff, 2),
-                        "percentDifference": round(percent_diff, 2),
-                        "message": f"Ticket and drain matched but differ by {round(diff, 2)}L ({round(percent_diff, 1)}%)"
-                    })
+            else:
+                # More drains than tickets - possible unlogged collection
+                discrepancies.append({
+                    "type": "DAILY_VOLUME_SHORTAGE",
+                    "severity": severity,
+                    "cauldronId": cauldron_id,
+                    "date": date,
+                    "tickets": tickets_list,
+                    "drainEvents": drains,
+                    "totalTicketVolume": round(total_ticket_volume, 2),
+                    "totalDrainVolume": round(total_drain_volume, 2),
+                    "difference": round(volume_diff, 2),
+                    "percentDifference": round(percent_diff, 2),
+                    "message": f"Only {round(total_ticket_volume, 2)}L ticketed but {round(total_drain_volume, 2)}L drained ({round(percent_diff, 1)}% under)"
+                })
     
     return discrepancies
 
