@@ -14,48 +14,365 @@ cache = {}
 CACHE_DURATION = 60
 
 def get_cached_or_fetch(endpoint, cache_key=None, params=None):
-    """Fetch from cache or make API call"""
+    """Fetch from cache or make API call - NOW WITH DETAILED LOGGING"""
     key = cache_key or endpoint
     now = datetime.now().timestamp()
     
+    # Check cache
     if key in cache:
         data, timestamp = cache[key]
         if now - timestamp < CACHE_DURATION:
+            print(f"✓ Returning cached data for {key}")
             return data
     
+    # Fetch from API
     try:
         url = f"{BASE_URL}/{endpoint}"
+        print(f"\n{'='*60}")
+        print(f"FETCHING: {url}")
+        if params:
+            print(f"PARAMS: {params}")
+        
         r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        cache[key] = (data, now)
-        return data
-    except Exception as e:
-        print(f"Error fetching {endpoint}: {e}")
-        # Return cached data if available, even if expired
+        
+        print(f"STATUS CODE: {r.status_code}")
+        print(f"CONTENT TYPE: {r.headers.get('Content-Type', 'NOT SET')}")
+        print(f"CONTENT LENGTH: {len(r.text)} characters")
+        print(f"FIRST 500 CHARS:\n{r.text[:500]}")
+        print(f"{'='*60}\n")
+        
+        # Check if empty
+        if not r.text or r.text.strip() == '':
+            print(f"❌ ERROR: Empty response from {url}")
+            if key in cache:
+                print(f"⚠️  Returning stale cache")
+                return cache[key][0]
+            return None
+        
+        # Check status code
+        if r.status_code != 200:
+            print(f"❌ ERROR: Bad status code {r.status_code}")
+            if key in cache:
+                print(f"⚠️  Returning stale cache")
+                return cache[key][0]
+            return None
+        
+        # Try to parse JSON
+        try:
+            data = r.json()
+            print(f"✓ Successfully parsed JSON")
+            print(f"  Type: {type(data)}")
+            if isinstance(data, list):
+                print(f"  Length: {len(data)} items")
+            elif isinstance(data, dict):
+                print(f"  Keys: {list(data.keys())}")
+            
+            cache[key] = (data, now)
+            return data
+            
+        except Exception as json_err:
+            print(f"❌ JSON PARSE ERROR: {json_err}")
+            print(f"  Raw content: {r.text[:200]}")
+            if key in cache:
+                print(f"⚠️  Returning stale cache")
+                return cache[key][0]
+            return None
+            
+    except requests.exceptions.Timeout as e:
+        print(f"❌ TIMEOUT ERROR: {e}")
         if key in cache:
             return cache[key][0]
-        raise
+        return None
+        
+    except Exception as e:
+        print(f"❌ UNEXPECTED ERROR: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        if key in cache:
+            return cache[key][0]
+        return None
+@app.route("/api/debug/fill-rate-analysis", methods=['GET'])
+def debug_fill_rate_analysis():
+    """Analyze why fill rate estimation is failing for some cauldrons"""
+    try:
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        converted_data = convert_historical_data(historical_data)
+        
+        # Group by cauldron
+        cauldron_data = defaultdict(list)
+        for entry in converted_data:
+            cauldron_data[entry['cauldronId']].append(entry)
+        
+        analysis = {}
+        
+        for cid, entries in cauldron_data.items():
+            entries.sort(key=lambda x: x['timestamp'])
+            
+            # Count increases, decreases, and flat
+            increases = 0
+            decreases = 0
+            flat = 0
+            total_intervals = 0
+            positive_rates = []
+            
+            for i in range(len(entries) - 1):
+                try:
+                    curr = entries[i]
+                    next_e = entries[i + 1]
+                    
+                    time_curr = datetime.fromisoformat(curr['timestamp'].replace('Z', '+00:00'))
+                    time_next = datetime.fromisoformat(next_e['timestamp'].replace('Z', '+00:00'))
+                    time_diff_min = (time_next - time_curr).total_seconds() / 60
+                    
+                    if time_diff_min <= 0 or time_diff_min > 5:
+                        continue
+                    
+                    level_change = next_e['level'] - curr['level']
+                    total_intervals += 1
+                    
+                    if level_change > 0:
+                        increases += 1
+                        rate = level_change / time_diff_min
+                        if 0.01 < rate < 10:
+                            positive_rates.append(rate)
+                    elif level_change < 0:
+                        decreases += 1
+                    else:
+                        flat += 1
+                        
+                except:
+                    continue
+            
+            fill_rate = estimate_fill_rate(entries)
+            
+            analysis[cid] = {
+                "total_data_points": len(entries),
+                "total_intervals": total_intervals,
+                "increases": increases,
+                "decreases": decreases,
+                "flat": flat,
+                "positive_rates_found": len(positive_rates),
+                "estimated_fill_rate": round(fill_rate, 3) if fill_rate > 0 else 0,
+                "median_positive_rate": round(statistics.median(positive_rates), 3) if positive_rates else 0,
+                "sample_positive_rates": [round(r, 3) for r in positive_rates[:10]],
+                "will_be_processed": fill_rate > 0
+            }
+        
+        # Summary
+        cauldrons_with_rate = sum(1 for a in analysis.values() if a['estimated_fill_rate'] > 0)
+        cauldrons_without_rate = len(analysis) - cauldrons_with_rate
+        
+        return jsonify({
+            "total_cauldrons": len(analysis),
+            "cauldrons_with_fill_rate": cauldrons_with_rate,
+            "cauldrons_without_fill_rate": cauldrons_without_rate,
+            "cauldron_analysis": analysis
+        })
+    
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+@app.route("/api/debug/estimated-rates")
+def debug_estimated_rates():
+    """See what fill rates we're estimating"""
+    historical_data = get_cached_or_fetch("Data", "historical_data")
+    converted_data = convert_historical_data(historical_data)
+    
+    # Group by cauldron
+    cauldron_data = defaultdict(list)
+    for entry in converted_data:
+        cauldron_data[entry['cauldronId']].append(entry)
+    
+    rates = {}
+    for cid, entries in list(cauldron_data.items())[:5]:  # First 5
+        entries.sort(key=lambda x: x['timestamp'])
+        fill_rate = estimate_fill_rate(entries)
+        rates[cid] = {
+            "fill_rate": round(fill_rate, 3),
+            "data_points": len(entries)
+        }
+    
+    return jsonify(rates)
+# Add this brand new test endpoint
+@app.route("/api/debug/historical-data", methods=['GET'])
+def debug_historical_data():
+    """Debug the historical data to see why drains aren't being detected"""
+    try:
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        
+        if not historical_data:
+            return jsonify({"error": "No historical data"})
+        
+        converted_data = convert_historical_data(historical_data)
+        
+        debug_info = {
+            "raw_data_type": str(type(historical_data)),
+            "raw_data_length": len(historical_data) if isinstance(historical_data, list) else "N/A",
+            "raw_data_sample": historical_data[:2] if isinstance(historical_data, list) else str(historical_data)[:500],
+            "converted_data_length": len(converted_data),
+            "converted_data_sample": converted_data[:10],
+            "cauldrons_in_data": list(set(d['cauldronId'] for d in converted_data[:100])),
+        }
+        
+        # Check for level changes
+        if converted_data:
+            cauldron_data = {}
+            for entry in converted_data[:1000]:  # First 1000 entries
+                cid = entry['cauldronId']
+                if cid not in cauldron_data:
+                    cauldron_data[cid] = []
+                cauldron_data[cid].append(entry)
+            
+            # Analyze one cauldron
+            sample_cauldron = list(cauldron_data.keys())[0]
+            entries = sorted(cauldron_data[sample_cauldron], key=lambda x: x['timestamp'])[:20]
+            
+            level_changes = []
+            for i in range(1, len(entries)):
+                change = entries[i]['level'] - entries[i-1]['level']
+                level_changes.append({
+                    "from": entries[i-1]['level'],
+                    "to": entries[i]['level'],
+                    "change": change,
+                    "time_from": entries[i-1]['timestamp'],
+                    "time_to": entries[i]['timestamp']
+                })
+            
+            debug_info["sample_cauldron"] = sample_cauldron
+            debug_info["sample_level_changes"] = level_changes
+        
+        return jsonify(debug_info)
+    
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+@app.route("/api/debug/external-api")
+def debug_external_api():
+    """Test if the external API is working at all"""
+    
+    results = {
+        "base_url": BASE_URL,
+        "tests": {}
+    }
+    
+    # Test 1: Basic connectivity
+    print("\n" + "="*80)
+    print("TESTING EXTERNAL API CONNECTIVITY")
+    print("="*80)
+    
+    try:
+        test_url = f"{BASE_URL}/Data"
+        print(f"\nTesting: {test_url}")
+        r = requests.get(test_url, timeout=5)
+        
+        results["tests"]["data_endpoint"] = {
+            "url": test_url,
+            "status_code": r.status_code,
+            "ok": r.status_code == 200,
+            "content_type": r.headers.get('Content-Type', 'NOT SET'),
+            "content_length": len(r.text),
+            "is_empty": len(r.text) == 0,
+            "preview": r.text[:300] if r.text else "EMPTY RESPONSE",
+            "error": None
+        }
+        
+        # Try to parse
+        if r.text:
+            try:
+                data = r.json()
+                results["tests"]["data_endpoint"]["json_valid"] = True
+                results["tests"]["data_endpoint"]["data_type"] = str(type(data))
+                if isinstance(data, list):
+                    results["tests"]["data_endpoint"]["item_count"] = len(data)
+                elif isinstance(data, dict):
+                    results["tests"]["data_endpoint"]["keys"] = list(data.keys())
+            except Exception as e:
+                results["tests"]["data_endpoint"]["json_valid"] = False
+                results["tests"]["data_endpoint"]["json_error"] = str(e)
+        
+    except Exception as e:
+        results["tests"]["data_endpoint"] = {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    # Test 2: Tickets endpoint
+    try:
+        test_url = f"{BASE_URL}/Tickets"
+        print(f"\nTesting: {test_url}")
+        r = requests.get(test_url, timeout=5)
+        
+        results["tests"]["tickets_endpoint"] = {
+            "url": test_url,
+            "status_code": r.status_code,
+            "ok": r.status_code == 200,
+            "content_type": r.headers.get('Content-Type', 'NOT SET'),
+            "content_length": len(r.text),
+            "is_empty": len(r.text) == 0,
+            "preview": r.text[:300] if r.text else "EMPTY RESPONSE",
+            "error": None
+        }
+        
+        if r.text:
+            try:
+                data = r.json()
+                results["tests"]["tickets_endpoint"]["json_valid"] = True
+                results["tests"]["tickets_endpoint"]["data_type"] = str(type(data))
+                if isinstance(data, list):
+                    results["tests"]["tickets_endpoint"]["item_count"] = len(data)
+                elif isinstance(data, dict):
+                    results["tests"]["tickets_endpoint"]["keys"] = list(data.keys())
+            except Exception as e:
+                results["tests"]["tickets_endpoint"]["json_valid"] = False
+                results["tests"]["tickets_endpoint"]["json_error"] = str(e)
+                
+    except Exception as e:
+        results["tests"]["tickets_endpoint"] = {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    # Test 3: Try with parameters
+    try:
+        test_url = f"{BASE_URL}/Data"
+        params = {"start_date": "0", "end_date": "2000000000"}
+        print(f"\nTesting with params: {test_url}?{params}")
+        r = requests.get(test_url, params=params, timeout=5)
+        
+        results["tests"]["data_with_params"] = {
+            "url": test_url,
+            "params": params,
+            "status_code": r.status_code,
+            "ok": r.status_code == 200,
+            "content_length": len(r.text),
+            "is_empty": len(r.text) == 0,
+            "preview": r.text[:300] if r.text else "EMPTY RESPONSE"
+        }
+        
+    except Exception as e:
+        results["tests"]["data_with_params"] = {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    print("\n" + "="*80)
+    print("TEST COMPLETE")
+    print("="*80 + "\n")
+    
+    return jsonify(results)
+
 
 @app.route("/")
 def home():
     return "Welcome to the HackUTD API proxy! Try /api/couriers, /api/market, or /api/tickets."
-
-@app.route("/api/<path:endpoint>")
-def proxy(endpoint):
-    """
-    Proxy all GET requests to the external API
-    Handles query parameters and caching automatically
-    """
-    try:
-        params = request.args.to_dict()
-        
-        cache_key = f"{endpoint}_{str(params)}" if params else endpoint
-        
-        data = get_cached_or_fetch(endpoint, cache_key, params if params else None)
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# Add this anywhere in your app.py file
 
 @app.route("/api/analyze/discrepancy-detection", methods=["GET"])
 def discrepancy_detection():
@@ -63,9 +380,10 @@ def discrepancy_detection():
     try:
         historical_data = get_cached_or_fetch("Data", "historical_data")
         tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")  # ADD THIS
         tickets = tickets_response.get("transport_tickets", [])
         data = convert_historical_data(historical_data)
-        drain_events = detect_drain_events(data)
+        drain_events = detect_drain_events(data, cauldron_id=None, cauldron_info=cauldrons)  # UPDATE THIS
         discrepancies = find_discrepancies(drain_events, tickets)
 
         return jsonify({
@@ -83,6 +401,103 @@ def discrepancy_detection():
     
 """Analysis"""
 
+# Update the analyze endpoints to fetch and pass cauldron info
+
+@app.route("/api/analyze/drain-events", methods=['POST', 'GET'])
+def analyze_drain_events():
+    """
+    Detect drain events from historical data
+    Expects: { "cauldronId": "optional" }
+    """
+    try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
+        if request.method == 'POST' and request.is_json:
+            params = request.get_json()
+        else:
+            params = {}
+        cauldron_id = params.get('cauldronId')
+        
+        # Fetch historical data AND cauldron info
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
+        converted_data = convert_historical_data(historical_data)
+        
+        # Pass cauldron info to drain detection
+        drain_events = detect_drain_events(converted_data, cauldron_id, cauldrons)
+        
+        return jsonify({
+            "success": True,
+            "drainEvents": drain_events,
+            "count": len(drain_events)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/analyze/discrepancies", methods=['POST', 'GET'])
+def analyze_discrepancies():
+    """
+    Analyze discrepancies between tickets and actual drains
+    Expects: { "ticketThreshold": 0.05 } (optional 5% tolerance)
+    """
+    try:
+        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
+        if force_refresh:
+            cache.clear()
+        
+        # Handle parameters for both GET and POST
+        threshold = 0.05  # default
+        
+        if request.method == 'POST':
+            if request.is_json:
+                params = request.get_json()
+                threshold = params.get('ticketThreshold', 0.05)
+        else:
+            threshold = float(request.args.get('threshold', 0.05))
+        
+        # Fetch required data including cauldron info
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
+        
+        if not historical_data or not tickets_response:
+            return jsonify({
+                "success": False,
+                "error": "Failed to fetch data from API",
+                "discrepancies": [],
+                "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0}
+            })
+        
+        converted_data = convert_historical_data(historical_data)
+        tickets = tickets_response.get('transport_tickets', [])
+        
+        # Detect drain events with cauldron info
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)
+        
+        # Find discrepancies
+        discrepancies = find_discrepancies(drain_events, tickets, threshold)
+        
+        return jsonify({
+            "success": True,
+            "discrepancies": discrepancies,
+            "summary": {
+                "total": len(discrepancies),
+                "critical": len([d for d in discrepancies if d['severity'] == 'critical']),
+                "high": len([d for d in discrepancies if d['severity'] == 'high']),
+                "medium": len([d for d in discrepancies if d['severity'] == 'medium'])
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "discrepancies": [],
+            "summary": {"total": 0, "critical": 0, "high": 0, "medium": 0}
+        })
+
 @app.route("/api/analyze/summary")
 def analyze_summary():
     """Get quick summary of system status"""
@@ -99,8 +514,8 @@ def analyze_summary():
         converted_data = convert_historical_data(historical_data)
         tickets = tickets_response.get('transport_tickets', [])
         
-        # Run analyses
-        drain_events = detect_drain_events(converted_data)
+        # Run analyses with cauldron info
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)
         discrepancies = find_discrepancies(drain_events, tickets)
         fill_rates = calculate_fill_rates(converted_data)
         predictions = predict_overflow(converted_data, cauldrons, fill_rates, 24)
@@ -125,120 +540,202 @@ def analyze_summary():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/analyze/drain-events", methods=['POST'])
-def analyze_drain_events():
-    """
-    Detect drain events from historical data
-    Expects: { "cauldronId": "optional" }
-    """
+@app.route("/api/analyze/annotated-tickets", methods=['GET'])
+def get_annotated_tickets():
+    """Get tickets with discrepancy annotations"""
     try:
-        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
-        if force_refresh:
-            cache.clear()
-        params = request.json or {}
-        cauldron_id = params.get('cauldronId')
-        
-        # Fetch historical data
-        historical_data = get_cached_or_fetch("Data", "historical_data")
-        converted_data = convert_historical_data(historical_data)
-        
-        drain_events = detect_drain_events(converted_data, cauldron_id)
-        
-        return jsonify({
-            "success": True,
-            "drainEvents": drain_events,
-            "count": len(drain_events)
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/analyze/discrepancies", methods=['POST'])
-def analyze_discrepancies():
-    """
-    Analyze discrepancies between tickets and actual drains
-    Expects: { "ticketThreshold": 0.05 } (optional 5% tolerance)
-    """
-    try:
-        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
-        if force_refresh:
-            cache.clear()
-        params = request.json or {}
-        threshold = params.get('ticketThreshold', 0.05)
-        
-        # Fetch required data
-        historical_data = get_cached_or_fetch("Data", "historical_data")
         tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
         
-        converted_data = convert_historical_data(historical_data)
         tickets = tickets_response.get('transport_tickets', [])
+        converted_data = convert_historical_data(historical_data)
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)
+        discrepancies = find_discrepancies(drain_events, tickets)
         
-        # Detect drain events
-        drain_events = detect_drain_events(converted_data)
-        
-        # Find discrepancies
-        discrepancies = find_discrepancies(drain_events, tickets, threshold)
+        # Use the annotate function
+        annotated = annotate_tickets_with_discrepancies(tickets, discrepancies)
         
         return jsonify({
             "success": True,
-            "discrepancies": discrepancies,
+            "tickets": annotated,
             "summary": {
-                "total": len(discrepancies),
-                "critical": len([d for d in discrepancies if d['severity'] == 'critical']),
-                "high": len([d for d in discrepancies if d['severity'] == 'high']),
-                "medium": len([d for d in discrepancies if d['severity'] == 'medium'])
+                "total": len(tickets),
+                "suspicious": len([t for t in annotated if t.get('is_suspicious')]),
+                "critical": len([t for t in annotated if t.get('suspicion_severity') == 'critical'])
             }
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/analyze/fill-rates", methods=['POST'])
-def analyze_fill_rates():
-    """
-    Calculate fill rates for each cauldron
-    Expects: { "cauldronId": "optional" }
-    """
+@app.route("/api/debug/drain-detection-all-cauldrons", methods=['GET'])
+def debug_drain_detection_all_cauldrons():
+    """Debug drain detection across ALL cauldrons"""
     try:
-        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
-        if force_refresh:
-            cache.clear()
-        params = request.json or {}
-        cauldron_id = params.get('cauldronId')
-        
-        historical_data = get_cached_or_fetch("Data", "historical_data")
-        converted_data = convert_historical_data(historical_data)
-        fill_rates = calculate_fill_rates(converted_data, cauldron_id)
-        
-        return jsonify({
-            "success": True,
-            "fillRates": fill_rates
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/analyze/predictions", methods=['POST'])
-def analyze_predictions():
-    """
-    Predict when cauldrons will reach capacity
-    Expects: { "hoursAhead": 24 }
-    """
-    try:
-        force_refresh = request.args.get("forceRefresh", "false").lower() == "true"
-        if force_refresh:
-            cache.clear()
-        params = request.json or {}
-        hours_ahead = params.get('hoursAhead', 24)
-        
         historical_data = get_cached_or_fetch("Data", "historical_data")
         cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
-        
         converted_data = convert_historical_data(historical_data)
-        fill_rates = calculate_fill_rates(converted_data)
-        predictions = predict_overflow(converted_data, cauldrons, fill_rates, hours_ahead)
         
+        # Detect drains for ALL cauldrons
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)
+        
+        # Group by cauldron
+        drains_by_cauldron = defaultdict(list)
+        for drain in drain_events:
+            drains_by_cauldron[drain['cauldronId']].append(drain)
+        
+        # Get tickets
+        tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        tickets = tickets_response.get('transport_tickets', []) if tickets_response else []
+        
+        tickets_by_cauldron = defaultdict(int)
+        for ticket in tickets:
+            tickets_by_cauldron[ticket.get('cauldron_id', '')] += 1
+        
+        summary = {
+            "total_drains_detected": len(drain_events),
+            "total_tickets": len(tickets),
+            "drains_per_cauldron": {cid: len(drains) for cid, drains in drains_by_cauldron.items()},
+            "tickets_per_cauldron": dict(tickets_by_cauldron),
+            "sample_drains": drain_events[:20]  # First 20 drains
+        }
+        
+        return jsonify(summary)
+    
+    except Exception as e:
+        import traceback
         return jsonify({
-            "success": True,
-            "predictions": predictions
+            "error": str(e),
+            "traceback": traceback.format_exc()
         })
+    
+@app.route("/api/test/simple")
+def test_simple():
+    """Simple test to see if basic API calls work"""
+    results = {}
+    
+    # Test 1: Can we reach the API at all?
+    try:
+        r = requests.get(f"{BASE_URL}/Data", timeout=5)
+        results['data_endpoint'] = {
+            'status': r.status_code,
+            'success': r.status_code == 200,
+            'has_content': len(r.text) > 0,
+            'preview': r.text[:200] if r.text else 'EMPTY'
+        }
+    except Exception as e:
+        results['data_endpoint'] = {'error': str(e)}
+    
+    # Test 2: Can we get tickets?
+    try:
+        r = requests.get(f"{BASE_URL}/Tickets", timeout=5)
+        results['tickets_endpoint'] = {
+            'status': r.status_code,
+            'success': r.status_code == 200,
+            'has_content': len(r.text) > 0,
+            'preview': r.text[:200] if r.text else 'EMPTY'
+        }
+    except Exception as e:
+        results['tickets_endpoint'] = {'error': str(e)}
+    
+    return jsonify(results)
+
+@app.route("/api/debug/matching", methods=['GET'])
+def debug_matching():
+    """Debug ticket-to-drain matching to see what's going wrong"""
+    try:
+        historical_data = get_cached_or_fetch("Data", "historical_data")
+        tickets_response = get_cached_or_fetch("Tickets", "tickets")
+        cauldrons = get_cached_or_fetch("Information/cauldrons", "cauldrons")
+        
+        if not historical_data or not tickets_response:
+            return jsonify({"error": "Failed to fetch data"})
+        
+        tickets = tickets_response.get('transport_tickets', [])
+        converted_data = convert_historical_data(historical_data)
+        drain_events = detect_drain_events(converted_data, cauldron_id=None, cauldron_info=cauldrons)  # FIXED
+        
+        # Get a sample day to debug
+        sample_ticket = tickets[0] if tickets else None
+        
+        debug_info = {
+            "total_tickets": len(tickets),
+            "total_drain_events": len(drain_events),
+            "sample_ticket": sample_ticket,
+            "sample_drain": drain_events[0] if drain_events else None,
+            "tickets_by_date": {},
+            "drains_by_date": {}
+        }
+        
+        # Group tickets by date
+        for t in tickets[:10]:
+            date = t.get('date', '').split('T')[0]
+            cauldron = t.get('cauldron_id', '')
+            key = f"{date}_{cauldron}"
+            if key not in debug_info["tickets_by_date"]:
+                debug_info["tickets_by_date"][key] = []
+            debug_info["tickets_by_date"][key].append({
+                "amount": t.get('amount_collected'),
+                "courier": t.get('courier_id'),
+                "date": t.get('date')
+            })
+        
+        # Group drains by date
+        for d in drain_events[:10]:
+            date = d['startTime'].split('T')[0]
+            cauldron = d['cauldronId']
+            key = f"{date}_{cauldron}"
+            if key not in debug_info["drains_by_date"]:
+                debug_info["drains_by_date"][key] = []
+            debug_info["drains_by_date"][key].append({
+                "volume": d['totalPotionRemoved'],
+                "startTime": d['startTime'],
+                "duration": d['duration']
+            })
+        
+        return jsonify(debug_info)
+    
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+    
+@app.route("/debug/routes")
+def list_routes():
+    """List all registered routes"""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        routes.append({
+            "endpoint": rule.endpoint,
+            "methods": list(rule.methods),
+            "path": str(rule.rule)
+        })
+    return jsonify(sorted(routes, key=lambda x: x['path']))
+
+@app.route("/api/<path:endpoint>")
+def proxy(endpoint):
+    """
+    Proxy all GET requests to the external API
+    This MUST come AFTER all specific /api/* routes
+    """
+    try:
+        # Don't proxy analyze, test, or debug routes - they should have been handled above
+        if endpoint.startswith('analyze/') or endpoint.startswith('test/') or endpoint.startswith('debug/'):
+            return jsonify({
+                "error": f"Endpoint /{endpoint} not found",
+                "hint": "This endpoint may not be implemented yet"
+            }), 404
+        
+        params = request.args.to_dict()
+        cache_key = f"{endpoint}_{str(params)}" if params else endpoint
+        data = get_cached_or_fetch(endpoint, cache_key, params if params else None)
+        
+        if data is None:
+            return jsonify({"error": "Failed to fetch data from external API"}), 500
+            
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -270,10 +767,11 @@ def convert_historical_data(raw_data):
 # Analysis Functions
 # =======================
 
-def detect_drain_events(data, cauldron_id=None):
+
+def detect_drain_events(data, cauldron_id=None, cauldron_info=None):
     """
-    Detect drain events from time-series data
-    A drain is characterized by a significant negative level change
+    Window-based detection: Look at 30-minute windows and detect when 
+    the net rate is significantly below fill rate.
     """
     drain_events = []
     
@@ -286,86 +784,166 @@ def detect_drain_events(data, cauldron_id=None):
     
     # Process each cauldron
     for cid, entries in cauldron_data.items():
-        # Sort by timestamp
         entries.sort(key=lambda x: x.get('timestamp', ''))
         
-        for i in range(1, len(entries)):
-            prev = entries[i-1]
-            curr = entries[i]
+        if len(entries) < 10:
+            continue
+        
+        # Estimate fill rate
+        fill_rate = estimate_fill_rate(entries)
+        if fill_rate <= 0:
+            fill_rate = 0.1
+        
+        # Scan through data looking for sustained periods of below-expected filling
+        i = 0
+        while i < len(entries) - 30:  # Need at least 30 points ahead
             
-            level_change = curr.get('level', 0) - prev.get('level', 0)
+            # Look at a 30-minute window
+            start_idx = i
+            start_entry = entries[start_idx]
             
-            # Detect significant drops (drains)
-            # Threshold: drop of more than 10% of previous level or > 50L
-            threshold = max(prev.get('level', 0) * 0.1, 50)
-            
-            if level_change < -threshold:
-                # Found a drain event
-                prev_time = datetime.fromisoformat(prev['timestamp'].replace('Z', '+00:00'))
-                curr_time = datetime.fromisoformat(curr['timestamp'].replace('Z', '+00:00'))
-                duration = (curr_time - prev_time).total_seconds() / 60  # minutes
+            # Find entry ~30 minutes later
+            try:
+                start_time = datetime.fromisoformat(start_entry['timestamp'].replace('Z', '+00:00'))
                 
-                # Estimate fill rate from nearby stable periods
-                fill_rate = estimate_fill_rate_at_point(entries, i)
+                # Find entry closest to 30 min ahead
+                target_idx = None
+                for j in range(i + 20, min(i + 50, len(entries))):
+                    check_time = datetime.fromisoformat(entries[j]['timestamp'].replace('Z', '+00:00'))
+                    time_diff = (check_time - start_time).total_seconds() / 60
+                    if 25 <= time_diff <= 35:  # Accept 25-35 minute window
+                        target_idx = j
+                        break
                 
-                # Calculate total potion removed
-                level_drop = abs(level_change)
-                potion_generated = fill_rate * duration
-                total_removed = level_drop + potion_generated
+                if target_idx is None:
+                    i += 1
+                    continue
                 
-                drain_events.append({
-                    "cauldronId": cid,
-                    "startTime": prev['timestamp'],
-                    "endTime": curr['timestamp'],
-                    "duration": round(duration, 2),
-                    "levelDrop": round(level_drop, 2),
-                    "potionGeneratedDuringDrain": round(potion_generated, 2),
-                    "totalPotionRemoved": round(total_removed, 2),
-                    "estimatedFillRate": round(fill_rate, 3),
-                    "startLevel": round(prev.get('level', 0), 2),
-                    "endLevel": round(curr.get('level', 0), 2)
-                })
+                end_entry = entries[target_idx]
+                end_time = datetime.fromisoformat(end_entry['timestamp'].replace('Z', '+00:00'))
+                window_duration = (end_time - start_time).total_seconds() / 60
+                
+                # Calculate expected vs actual change
+                expected_increase = fill_rate * window_duration
+                actual_change = end_entry['level'] - start_entry['level']
+                net_rate = actual_change / window_duration
+                
+                # If net rate is significantly below fill rate, we're in a drain
+                if net_rate < fill_rate * 0.5:  # Less than 50% of expected
+                    # Found start of drain, now find the end
+                    drain_start_idx = i
+                    drain_end_idx = target_idx
+                    
+                    # Keep extending while rate stays low
+                    k = target_idx
+                    while k < len(entries) - 30:
+                        # Check next 30-min window
+                        check_start = entries[k]
+                        check_start_time = datetime.fromisoformat(check_start['timestamp'].replace('Z', '+00:00'))
+                        
+                        # Find 30 min ahead
+                        next_idx = None
+                        for m in range(k + 20, min(k + 50, len(entries))):
+                            check_time = datetime.fromisoformat(entries[m]['timestamp'].replace('Z', '+00:00'))
+                            time_diff = (check_time - check_start_time).total_seconds() / 60
+                            if 25 <= time_diff <= 35:
+                                next_idx = m
+                                break
+                        
+                        if next_idx is None:
+                            break
+                        
+                        check_end = entries[next_idx]
+                        check_end_time = datetime.fromisoformat(check_end['timestamp'].replace('Z', '+00:00'))
+                        check_duration = (check_end_time - check_start_time).total_seconds() / 60
+                        check_change = check_end['level'] - check_start['level']
+                        check_rate = check_change / check_duration
+                        
+                        # If still draining, extend
+                        if check_rate < fill_rate * 0.5:
+                            drain_end_idx = next_idx
+                            k = next_idx
+                        else:
+                            # Drain has ended
+                            break
+                    
+                    # Calculate final drain statistics
+                    final_start = entries[drain_start_idx]
+                    final_end = entries[drain_end_idx]
+                    
+                    final_start_time = datetime.fromisoformat(final_start['timestamp'].replace('Z', '+00:00'))
+                    final_end_time = datetime.fromisoformat(final_end['timestamp'].replace('Z', '+00:00'))
+                    total_duration = (final_end_time - final_start_time).total_seconds() / 60
+                    
+                    level_drop = final_start['level'] - final_end['level']
+                    potion_generated = fill_rate * total_duration
+                    total_removed = level_drop + potion_generated
+                    
+                    # Record if significant
+                    if total_duration >= 10 and total_removed >= 10:
+                        drain_events.append({
+                            "cauldronId": cid,
+                            "startTime": final_start['timestamp'],
+                            "endTime": final_end['timestamp'],
+                            "duration": round(total_duration, 2),
+                            "levelDrop": round(level_drop, 2),
+                            "potionGeneratedDuringDrain": round(potion_generated, 2),
+                            "totalPotionRemoved": round(total_removed, 2),
+                            "estimatedFillRate": round(fill_rate, 3),
+                            "estimatedDrainRate": round(total_removed / total_duration, 3) if total_duration > 0 else 0,
+                            "startLevel": round(final_start['level'], 2),
+                            "endLevel": round(final_end['level'], 2)
+                        })
+                        
+                        # Skip past this drain
+                        i = drain_end_idx + 1
+                    else:
+                        i += 1
+                else:
+                    i += 1
+                    
+            except Exception as e:
+                i += 1
+                continue
     
     return drain_events
 
-def estimate_fill_rate_at_point(entries, index, lookback=60):
+def estimate_fill_rate(entries):
     """
-    Estimate fill rate from stable periods before a drain event
-    lookback: number of data points to look back
+    Estimate fill rate from periods of consistent level increase.
+    Returns median fill rate in L/min.
     """
-    if index < 2:
-        return 0
+    fill_rates = []
     
-    # Look at previous entries
-    start_idx = max(0, index - lookback)
-    relevant_entries = entries[start_idx:index]
-    
-    if len(relevant_entries) < 2:
-        return 0
-    
-    # Calculate positive level changes (filling periods)
-    increases = []
-    for i in range(1, len(relevant_entries)):
-        prev = relevant_entries[i-1]
-        curr = relevant_entries[i]
-        change = curr.get('level', 0) - prev.get('level', 0)
-        
-        # Only consider positive changes (filling)
-        if change > 0:
-            try:
-                prev_time = datetime.fromisoformat(prev['timestamp'].replace('Z', '+00:00'))
-                curr_time = datetime.fromisoformat(curr['timestamp'].replace('Z', '+00:00'))
-                time_diff = (curr_time - prev_time).total_seconds() / 60  # minutes
-                
-                if time_diff > 0:
-                    rate = change / time_diff
-                    increases.append(rate)
-            except:
+    for i in range(len(entries) - 1):
+        try:
+            curr = entries[i]
+            next_e = entries[i + 1]
+            
+            time_curr = datetime.fromisoformat(curr['timestamp'].replace('Z', '+00:00'))
+            time_next = datetime.fromisoformat(next_e['timestamp'].replace('Z', '+00:00'))
+            time_diff_min = (time_next - time_curr).total_seconds() / 60
+            
+            if time_diff_min <= 0 or time_diff_min > 5:
                 continue
+            
+            level_change = next_e['level'] - curr['level']
+            
+            # Only consider increases (filling periods)
+            if level_change > 0:
+                rate = level_change / time_diff_min
+                # Filter out unrealistic rates
+                if 0.01 < rate < 10:
+                    fill_rates.append(rate)
+                    
+        except:
+            continue
     
-    if increases:
-        return statistics.median(increases)
-    return 0
+    if not fill_rates:
+        return 0
+    
+    return statistics.median(fill_rates)
+
 
 def calculate_fill_rates(data, cauldron_id=None):
     """Calculate average fill rates for each cauldron"""
@@ -411,81 +989,256 @@ def calculate_fill_rates(data, cauldron_id=None):
     
     return fill_rates
 
+def annotate_tickets_with_discrepancies(tickets, discrepancies):
+    """
+    Annotate individual tickets with their specific discrepancy information.
+    Now works with granular ticket-to-drain matching.
+    """
+    # Create a lookup for tickets by ID (or by unique key if no ID)
+    ticket_lookup = {}
+    for t in tickets:
+        # Create unique key for ticket
+        ticket_id = t.get('ticket_id') or t.get('id')
+        if not ticket_id:
+            # Create synthetic ID from ticket properties
+            date = t.get('date', '')
+            cauldron = t.get('cauldron_id', '')
+            amount = t.get('amount_collected', 0)
+            courier = t.get('courier_id', '')
+            ticket_id = f"{date}_{cauldron}_{amount}_{courier}"
+        
+        ticket_lookup[ticket_id] = t
+    
+    # Map discrepancies to tickets
+    ticket_discrepancies = {}
+    
+    for disc in discrepancies:
+        if 'ticket' in disc:
+            # Get the ticket from the discrepancy
+            ticket_data = disc['ticket']
+            ticket_id = ticket_data.get('ticket_id') or ticket_data.get('id')
+            
+            if not ticket_id:
+                # Create same synthetic ID
+                date = ticket_data.get('date', '')
+                cauldron = ticket_data.get('cauldron_id', '')
+                amount = ticket_data.get('amount_collected', 0)
+                courier = ticket_data.get('courier_id', '')
+                ticket_id = f"{date}_{cauldron}_{amount}_{courier}"
+            
+            if ticket_id not in ticket_discrepancies:
+                ticket_discrepancies[ticket_id] = []
+            ticket_discrepancies[ticket_id].append(disc)
+    
+    # Annotate each ticket
+    annotated = []
+    
+    for ticket in tickets:
+        t_copy = dict(ticket)
+        
+        # Get ticket ID
+        ticket_id = t_copy.get('ticket_id') or t_copy.get('id')
+        if not ticket_id:
+            date = t_copy.get('date', '')
+            cauldron = t_copy.get('cauldron_id', '')
+            amount = t_copy.get('amount_collected', 0)
+            courier = t_copy.get('courier_id', '')
+            ticket_id = f"{date}_{cauldron}_{amount}_{courier}"
+        
+        # Check if this ticket has any discrepancies
+        ticket_discs = ticket_discrepancies.get(ticket_id, [])
+        
+        if not ticket_discs:
+            # Clean ticket
+            t_copy['is_suspicious'] = False
+            t_copy['suspicion_type'] = None
+            t_copy['suspicion_severity'] = None
+            t_copy['suspicion_message'] = None
+            t_copy['linked_drain_events'] = []
+        else:
+            # Has discrepancies
+            t_copy['is_suspicious'] = True
+            
+            # Combine info from all discrepancies for this ticket
+            types = [d['type'] for d in ticket_discs]
+            severities = [d['severity'] for d in ticket_discs]
+            messages = [d['message'] for d in ticket_discs]
+            drains = []
+            
+            for d in ticket_discs:
+                if 'drainEvent' in d:
+                    drains.append(d['drainEvent'])
+            
+            # Use highest severity
+            severity_order = {'critical': 3, 'high': 2, 'medium': 1, 'low': 0}
+            max_severity = max(severities, key=lambda s: severity_order.get(s, 0))
+            
+            t_copy['suspicion_type'] = types[0] if len(types) == 1 else "MULTIPLE_ISSUES"
+            t_copy['suspicion_severity'] = max_severity
+            t_copy['suspicion_message'] = " | ".join(messages)
+            t_copy['linked_drain_events'] = drains
+            t_copy['discrepancy_details'] = ticket_discs  # Include full details
+        
+        annotated.append(t_copy)
+    
+    return annotated
+
 def find_discrepancies(drain_events, tickets, threshold=0.05):
     """
-    Match tickets to drain events and identify discrepancies
+    Match individual tickets to specific drain events and identify discrepancies.
+    Uses a greedy matching algorithm to pair tickets with drains on the same day.
     threshold: acceptable percentage difference (default 5%)
     """
     discrepancies = []
     
-    # Group drains by date and cauldron
-    drains_by_date = defaultdict(list)
+    # Group drains and tickets by date and cauldron
+    drains_by_key = {}
+    tickets_by_key = {}
+    
     for drain in drain_events:
         date = drain['startTime'].split('T')[0]
-        key = f"{date}_{drain['cauldronId']}"
-        drains_by_date[key].append(drain)
+        cauldron = drain['cauldronId']
+        key = f"{date}_{cauldron}"
+        if key not in drains_by_key:
+            drains_by_key[key] = []
+        drains_by_key[key].append(drain)
     
-    # Group tickets by date and cauldron
-    tickets_by_date = defaultdict(list)
     for ticket in tickets:
         date = ticket.get('date', '').split('T')[0]
-        cauldron_id = ticket.get('cauldron_id', '')
-        key = f"{date}_{cauldron_id}"
-        tickets_by_date[key].append(ticket)
+        cauldron = ticket.get('cauldron_id', '')
+        key = f"{date}_{cauldron}"
+        if key not in tickets_by_key:
+            tickets_by_key[key] = []
+        tickets_by_key[key].append(ticket)
     
-    # Check all drain events for matching tickets
-    for key, drains in drains_by_date.items():
+    # Process each day/cauldron combination
+    all_keys = set(drains_by_key.keys()) | set(tickets_by_key.keys())
+    
+    for key in all_keys:
         date, cauldron_id = key.split('_', 1)
-        matching_tickets = tickets_by_date.get(key, [])
-        total_drained = sum(d['totalPotionRemoved'] for d in drains)
+        drains = drains_by_key.get(key, [])
+        tickets_list = tickets_by_key.get(key, [])
         
-        if not matching_tickets:
-            # Drain with no ticket - CRITICAL
-            discrepancies.append({
-                "type": "UNLOGGED_DRAIN",
-                "severity": "critical",
-                "cauldronId": cauldron_id,
-                "date": date,
-                "drainEvents": drains,
-                "totalVolume": round(total_drained, 2),
-                "message": f"Drain detected on {date} for {cauldron_id} but no ticket found! {round(total_drained, 2)}L unaccounted for."
-            })
-        else:
-            # Check volume match
-            total_ticket_volume = sum(t.get('amount_collected', 0) for t in matching_tickets)
-            difference = abs(total_ticket_volume - total_drained)
-            tolerance = total_drained * threshold
+        # Sort by volume for greedy matching
+        drains = sorted(drains, key=lambda d: d['totalPotionRemoved'], reverse=True)
+        tickets_list = sorted(tickets_list, key=lambda t: t.get('amount_collected', 0), reverse=True)
+        
+        # Track which drains and tickets have been matched
+        matched_drains = set()
+        matched_tickets = set()
+        matches = []  # (ticket_idx, drain_idx, difference)
+        
+        # Greedy matching: pair largest ticket with closest drain
+        for t_idx, ticket in enumerate(tickets_list):
+            ticket_vol = ticket.get('amount_collected', 0)
+            best_match = None
+            best_diff = float('inf')
             
-            if difference > tolerance:
-                severity = "critical" if difference > tolerance * 3 else "high" if difference > tolerance * 1.5 else "medium"
+            for d_idx, drain in enumerate(drains):
+                if d_idx in matched_drains:
+                    continue
+                
+                drain_vol = drain['totalPotionRemoved']
+                diff = abs(ticket_vol - drain_vol)
+                tolerance = drain_vol * threshold
+                
+                # Consider this a valid match if within tolerance
+                if diff <= tolerance and diff < best_diff:
+                    best_match = d_idx
+                    best_diff = diff
+            
+            if best_match is not None:
+                matched_drains.add(best_match)
+                matched_tickets.add(t_idx)
+                matches.append((t_idx, best_match, best_diff))
+        
+        # Now identify discrepancies
+        
+        # 1. Unmatched tickets (PHANTOM TICKETS)
+        for t_idx, ticket in enumerate(tickets_list):
+            if t_idx not in matched_tickets:
+                ticket_vol = ticket.get('amount_collected', 0)
+                
+                # Check if there are ANY unmatched drains
+                unmatched_drains = [d for d_idx, d in enumerate(drains) if d_idx not in matched_drains]
+                
+                if unmatched_drains:
+                    # There ARE drains, but none matched this ticket closely enough
+                    closest_drain = min(unmatched_drains, key=lambda d: abs(d['totalPotionRemoved'] - ticket_vol))
+                    difference = abs(closest_drain['totalPotionRemoved'] - ticket_vol)
+                    percent_diff = (difference / closest_drain['totalPotionRemoved'] * 100) if closest_drain['totalPotionRemoved'] > 0 else 999
+                    
+                    severity = "critical" if percent_diff > 50 else "high" if percent_diff > 20 else "medium"
+                    
+                    discrepancies.append({
+                        "type": "SIGNIFICANT_VOLUME_MISMATCH",
+                        "severity": severity,
+                        "cauldronId": cauldron_id,
+                        "date": date,
+                        "ticket": ticket,
+                        "ticketVolume": round(ticket_vol, 2),
+                        "closestDrainVolume": round(closest_drain['totalPotionRemoved'], 2),
+                        "difference": round(difference, 2),
+                        "percentDifference": round(percent_diff, 2),
+                        "drainEvent": closest_drain,
+                        "message": f"Ticket shows {round(ticket_vol, 2)}L but closest drain was {round(closest_drain['totalPotionRemoved'], 2)}L ({round(percent_diff, 1)}% difference)"
+                    })
+                else:
+                    # No drain event at all for this ticket
+                    discrepancies.append({
+                        "type": "PHANTOM_TICKET",
+                        "severity": "critical",
+                        "cauldronId": cauldron_id,
+                        "date": date,
+                        "ticket": ticket,
+                        "ticketVolume": round(ticket_vol, 2),
+                        "message": f"Ticket claims {round(ticket_vol, 2)}L collected but no drain event detected"
+                    })
+        
+        # 2. Unmatched drains (UNLOGGED DRAINS)
+        for d_idx, drain in enumerate(drains):
+            if d_idx not in matched_drains:
+                drain_vol = drain['totalPotionRemoved']
+                
                 discrepancies.append({
-                    "type": "VOLUME_MISMATCH",
-                    "severity": severity,
+                    "type": "UNLOGGED_DRAIN",
+                    "severity": "critical",
                     "cauldronId": cauldron_id,
                     "date": date,
-                    "ticketVolume": round(total_ticket_volume, 2),
-                    "actualDrained": round(total_drained, 2),
-                    "difference": round(difference, 2),
-                    "percentDifference": round((difference / total_drained * 100), 2),
-                    "drainEvents": drains,
-                    "tickets": matching_tickets,
-                    "message": f"Volume mismatch on {date}: Tickets show {round(total_ticket_volume, 2)}L but actual drain was {round(total_drained, 2)}L (difference: {round(difference, 2)}L)"
+                    "drainEvent": drain,
+                    "drainVolume": round(drain_vol, 2),
+                    "message": f"Drain of {round(drain_vol, 2)}L detected but no matching ticket found"
                 })
-    
-    # Check for tickets without matching drains
-    for key, tickets_list in tickets_by_date.items():
-        if key not in drains_by_date:
-            date, cauldron_id = key.split('_', 1)
-            total_ticket_volume = sum(t.get('amount_collected', 0) for t in tickets_list)
-            discrepancies.append({
-                "type": "PHANTOM_TICKET",
-                "severity": "high",
-                "cauldronId": cauldron_id,
-                "date": date,
-                "tickets": tickets_list,
-                "ticketVolume": round(total_ticket_volume, 2),
-                "message": f"Ticket found for {date} but no drain event detected for {cauldron_id}"
-            })
+        
+        # 3. Matched but with concerning differences
+        for t_idx, d_idx, diff in matches:
+            ticket = tickets_list[t_idx]
+            drain = drains[d_idx]
+            
+            ticket_vol = ticket.get('amount_collected', 0)
+            drain_vol = drain['totalPotionRemoved']
+            
+            # Even though they matched, flag if difference is non-trivial
+            if diff > 1.0:  # More than 1L difference
+                percent_diff = (diff / drain_vol * 100) if drain_vol > 0 else 0
+                
+                # Only flag if it's a meaningful percentage
+                if percent_diff > 2:  # More than 2% off
+                    severity = "medium" if percent_diff < 5 else "high"
+                    
+                    discrepancies.append({
+                        "type": "MINOR_VOLUME_MISMATCH",
+                        "severity": severity,
+                        "cauldronId": cauldron_id,
+                        "date": date,
+                        "ticket": ticket,
+                        "drainEvent": drain,
+                        "ticketVolume": round(ticket_vol, 2),
+                        "drainVolume": round(drain_vol, 2),
+                        "difference": round(diff, 2),
+                        "percentDifference": round(percent_diff, 2),
+                        "message": f"Ticket and drain matched but differ by {round(diff, 2)}L ({round(percent_diff, 1)}%)"
+                    })
     
     return discrepancies
 
