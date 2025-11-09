@@ -408,6 +408,10 @@ const App = () => {
                 dataKey="name"
                 stroke="#190d42"
                 tickFormatter={(value) => value.split(" ")[0]}
+                interval={0}
+                angle={-30}
+                textAnchor="end" 
+                height={60}
               />
               <YAxis stroke="#190d42" />
               <Tooltip
