@@ -1,9 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, Cell, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Activity, AlertTriangle, TrendingUp, Droplet } from 'lucide-react';
-import './index.css';
-import refreshIcon from './assets/refresh.svg';
-
+import React, { useState, useEffect } from "react";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  Cell,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import { Activity, AlertTriangle, TrendingUp, Droplet } from "lucide-react";
+import "./index.css";
+import refreshIcon from "./assets/refresh.svg";
 
 const App = () => {
   const [cauldrons, setCauldrons] = useState([]);
@@ -14,7 +25,8 @@ const App = () => {
   const [error, setError] = useState(null);
   const [selectedCauldron, setSelectedCauldron] = useState(null);
   const [market, setMarket] = useState(null);
-  
+  const [currentPage, setCurrentPage] = useState(1);
+  const ticketsPerPage = 10;
 
   useEffect(() => {
     fetchData();
@@ -25,39 +37,49 @@ const App = () => {
   const fetchData = async (forceRefresh = false) => {
     try {
       setLoading(true);
-      
-      const cauldronRes = await fetch(`/api/Information/cauldrons${forceRefresh ? '?forceRefresh=true' : ''}`);
-      if (!cauldronRes.ok) throw new Error(`Cauldrons API returned ${cauldronRes.status}`);
+
+      const cauldronRes = await fetch(
+        `/api/Information/cauldrons${forceRefresh ? "?forceRefresh=true" : ""}`,
+      );
+      if (!cauldronRes.ok)
+        throw new Error(`Cauldrons API returned ${cauldronRes.status}`);
       const cauldronData = await cauldronRes.json();
       setCauldrons(cauldronData);
 
       // Fetch market info
-      const marketRes = await fetch(`/api/Information/market${forceRefresh ? '?forceRefresh=true' : ''}`);
-      if (!marketRes.ok) throw new Error(`Market API returned ${marketRes.status}`);
+      const marketRes = await fetch(
+        `/api/Information/market${forceRefresh ? "?forceRefresh=true" : ""}`,
+      );
+      if (!marketRes.ok)
+        throw new Error(`Market API returned ${marketRes.status}`);
       const marketData = await marketRes.json();
       setMarket(marketData);
 
-      
       // Fetch historical data
-      const dataRes = await fetch(`/api/Data${forceRefresh ? '?forceRefresh=true' : ''}`);
+      const dataRes = await fetch(
+        `/api/Data${forceRefresh ? "?forceRefresh=true" : ""}`,
+      );
       if (!dataRes.ok) throw new Error(`Data API returned ${dataRes.status}`);
       const histData = await dataRes.json();
-      
+
       // Limit historical data to last 200 points to prevent memory issues
       setHistoricalData(histData.slice(-200));
-      
+
       // Get latest levels from most recent data point
       if (histData.length > 0) {
         const latest = histData[histData.length - 1];
         setCurrentLevels(latest.cauldron_levels || {});
       }
-      
+
       // Fetch tickets
-      const ticketRes = await fetch(`/api/Tickets${forceRefresh ? '?forceRefresh=true' : ''}`);
-      if (!ticketRes.ok) throw new Error(`Tickets API returned ${ticketRes.status}`);
+      const ticketRes = await fetch(
+        `/api/Tickets${forceRefresh ? "?forceRefresh=true" : ""}`,
+      );
+      if (!ticketRes.ok)
+        throw new Error(`Tickets API returned ${ticketRes.status}`);
       const ticketData = await ticketRes.json();
       setTickets(ticketData.transport_tickets || []);
-      
+
       // Set first cauldron as selected by default
       if (cauldronData.length > 0 && !selectedCauldron) {
         setSelectedCauldron(cauldronData[0].id);
@@ -65,8 +87,11 @@ const App = () => {
 
       setError(null);
     } catch (err) {
-      setError('Failed to fetch data: ' + (err instanceof Error ? err.message : String(err)));
-      console.error('Error fetching data:', err);
+      setError(
+        "Failed to fetch data: " +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      console.error("Error fetching data:", err);
     } finally {
       setLoading(false);
     }
@@ -75,11 +100,12 @@ const App = () => {
   // Prepare chart data for selected cauldron
   const getChartData = () => {
     if (!selectedCauldron || historicalData.length === 0) return [];
-    
+
     // Take last 100 data points for visualization
-    return historicalData.slice(-100).map(entry => ({
+    return historicalData.slice(-100).map((entry) => ({
       time: new Date(entry.timestamp).toLocaleTimeString(),
-      level: (entry.cauldron_levels && entry.cauldron_levels[selectedCauldron]) || 0
+      level:
+        (entry.cauldron_levels && entry.cauldron_levels[selectedCauldron]) || 0,
     }));
   };
   const chartData = getChartData();
@@ -89,185 +115,214 @@ const App = () => {
   let maxLevel = 0;
 
   if (chartData.length > 0) {
-    const levels = chartData.map(d => d.level);
+    const levels = chartData.map((d) => d.level);
     minLevel = Math.min(...levels) * 0.99; // 5% padding below
     maxLevel = Math.max(...levels) * 1.01; // 5% padding above
   }
   // Prepare bar chart data for all cauldrons
   const getBarChartData = () => {
-    return cauldrons.map(cauldron => ({
+    return cauldrons.map((cauldron) => ({
       name: cauldron.name || cauldron.id,
       currentLevel: currentLevels[cauldron.id] || 0,
       maxVolume: cauldron.max_volume,
-      utilization: ((currentLevels[cauldron.id] || 0) / cauldron.max_volume * 100).toFixed(1)
+      utilization: (
+        ((currentLevels[cauldron.id] || 0) / cauldron.max_volume) *
+        100
+      ).toFixed(1),
     }));
   };
 
   if (loading && cauldrons.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex items-center justify-center">
-        <div className="text-white text-2xl">Loading potion data... 🧙‍♀️</div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900">
+        <div className="text-2xl text-white">Loading potion data... 🧙‍♀️</div>
       </div>
     );
   }
 
-  {/*
+  {
+    /*
     MAIN HERE
     */
   }
+  const sortedTickets = tickets.sort(
+    (a, b) => new Date(b.date) - new Date(a.date),
+  );
+  const totalPages = Math.ceil(sortedTickets.length / ticketsPerPage);
+  const indexOfLastTicket = currentPage * ticketsPerPage;
+  const indexOfFirstTicket = indexOfLastTicket - ticketsPerPage;
+  const currentTickets = sortedTickets.slice(
+    indexOfFirstTicket,
+    indexOfLastTicket,
+  );
 
   return (
-    <div className="min-h-screen bg-zinc-200 w-full text-[#190d42] ibm-regular">
-      <div className="w-full mx-auto p-6 flex flex-col gap-4">
+    <div className="ibm-regular min-h-screen w-full bg-zinc-200 text-[#190d42]">
+      <div className="mx-auto flex w-full flex-col gap-4 p-6">
         {/* Header */}
-        <div className="mb-0 flex justify-between items-end">
+        <div className="mb-0 flex items-end justify-between">
           <div>
-            <h1 className="font-bold cinzel-title mb-2">🧙‍♀️ The Brew Report</h1>
-            <p className="text-[#794B72] text-xl font-bold">What's that? What's abrew?</p>
+            <h1 className="cinzel-title mb-2 font-bold">🧙‍♀️ The Brew Report</h1>
+            <p className="text-xl font-bold text-[#794B72]">
+              What's that? What's abrew?
+            </p>
           </div>
           <button
-  onClick={() => fetchData(true)}
-  className="p-4 rounded-full bg-transparent flex items-center justify-center cursor-pointer
-             transition-all duration-90 ease-out hover:scale-107 active:scale-90"
-  disabled={loading}
->
-  {loading ? (
-    <span className="flex items-center animate-spin">
-      <img
-        src={refreshIcon}
-        alt="Loading"
-        className="w-6 h-6"
-      />
-    </span>
-  ) : (
-    <img
-      src={refreshIcon}
-      alt="Refresh"
-      className="w-6  h-6"
-    />
-  )}
-</button>
-
-
-
+            onClick={() => fetchData(true)}
+            className="flex cursor-pointer items-center justify-center rounded-full bg-transparent p-4 transition-all duration-90 ease-out hover:scale-107 active:scale-90"
+            disabled={loading}
+          >
+            {loading ? (
+              <span className="flex animate-spin items-center">
+                <img src={refreshIcon} alt="Loading" className="h-6 w-6" />
+              </span>
+            ) : (
+              <img src={refreshIcon} alt="Refresh" className="h-6 w-6" />
+            )}
+          </button>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-500/20 border border-red-500 rounded-lg p-4 mb-6">
+          <div className="mb-6 rounded-lg border border-red-500 bg-red-500/20 p-4">
             <p className="text-red-200">{error}</p>
-            <button 
+            <button
               onClick={() => fetchData(false)}
-              className="mt-2 bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition-colors"
+              className="mt-2 rounded bg-red-500 px-4 py-2 transition-colors hover:bg-red-600"
             >
               Retry
             </button>
           </div>
         )}
         {/* 🗺️ Grid-based Map Visualization */}
-        <CauldronGridMap cauldrons={cauldrons} currentLevels={currentLevels} market={market}/>
+        <CauldronGridMap
+          cauldrons={cauldrons}
+          currentLevels={currentLevels}
+          market={market}
+        />
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-500/20 border border-red-500 rounded-lg p-4 mb-6">
+          <div className="mb-6 rounded-lg border border-red-500 bg-red-500/20 p-4">
             <p className="text-red-200">{error}</p>
             <button
               onClick={() => fetchData(false)}
-              className="mt-2 bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition-colors"
+              className="mt-2 rounded bg-red-500 px-4 py-2 transition-colors hover:bg-red-600"
             >
               Retry
             </button>
           </div>
         )}
 
-        {/* Current Levels Bar Chart */}
-        <div className="bg-white/80 rounded-lg p-6 border border-white/20 mb-2">
-        <h2 className="text-2xl font-bold mb-4">Current Cauldron Levels</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={getBarChartData()}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-            <XAxis dataKey="name" stroke="#190d42" />
-            <YAxis stroke="#190d42" />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'rgba(0,0,0,0.9)',
-                border: 'none',
-                borderRadius: '8px',
-                color: '#fff'
-              }}
-            />
-            <Legend />
-            
-            <Bar dataKey="currentLevel" fill="#8b5cf6" name="Current Level (L)" >
-              {getBarChartData().map((entry, index) => {
-                const percent = entry.currentLevel / entry.maxVolume;
-                let color = '#2E404A'; // green (default)
+        <div className="mb-2 rounded-lg border border-white/20 bg-white/80 p-6">
+          <h2 className="mb-4 text-2xl font-bold">Current Cauldron Levels</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={getBarChartData()} barGap={-40}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(255,255,255,0.1)"
+              />
+              <XAxis
+                dataKey="name"
+                stroke="#190d42"
+                tickFormatter={(value) => value.split(" ")[0]}
+              />
+              <YAxis stroke="#190d42" />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "rgba(0,0,0,0.9)",
+                  border: "none",
+                  borderRadius: "8px",
+                  color: "#fff",
+                }}
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    const percent = (
+                      (data.currentLevel / data.maxVolume) *
+                      100
+                    ).toFixed(0);
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: "rgba(0,0,0,0.9)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "10px",
+                          color: "#fff",
+                        }}
+                      >
+                        <p>{data.name}</p>
+                        <p style={{ color: "#8b5cf6" }}>
+                          {data.currentLevel}/{data.maxVolume} L ({percent}%)
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Bar
+                dataKey="maxVolume"
+                fillOpacity={0}
+                fill="#8b5cf6"
+                name="Max Capacity (L)"
+                barSize={40}
+              >
+                {getBarChartData().map((entry, index) => {
+                  const percent = entry.currentLevel / entry.maxVolume;
+                  let color = "#2E404A"; // green (default)
 
-                if (percent < 0.4) color = '#794B72'; // red if < 40%
-                else if (percent < 0.75) color = '#EFDEA6'; // yellow if < 75%
+                  if (percent < 0.3)
+                    color = "#794B72"; // red if < 40%
+                  else if (percent < 0.6) color = "#e6d18c"; // yellow if < 75%
 
-                return <Cell key={`cell-${index}`} fill={color} />;
-              })}
-            </Bar>
+                  return (
+                    <Cell
+                      key={`cell-max-${index}`}
+                      stroke={color}
+                      strokeWidth={2}
+                    />
+                  );
+                })}
+              </Bar>
 
-            <Bar dataKey="maxVolume" fill="#6366f1" name="Max Capacity (L)" />
-          </BarChart>
+              <Bar
+                dataKey="currentLevel"
+                fill="#8b5cf6"
+                name="Current Level (L)"
+                barSize={40}
+              >
+                {getBarChartData().map((entry, index) => {
+                  const percent = entry.currentLevel / entry.maxVolume;
+                  let color = "#2E404A"; // green (default)
+
+                  if (percent < 0.3)
+                    color = "#794B72"; // red if < 40%
+                  else if (percent < 0.6) color = "#e6d18c"; // yellow if < 75%
+
+                  return <Cell key={`cell-current-${index}`} fill={color} />;
+                })}
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
-       </div>
-
-               {/* Current Levels Bar Chart */}
-{/* <div className="bg-white/80 rounded-lg p-6 border border-white/20 mb-2">
-  <h2 className="text-2xl font-bold mb-4">Current Cauldron Levels</h2>
-  <ResponsiveContainer width="100%" height={300}>
-    <BarChart data={getBarChartData()}>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-      <XAxis dataKey="name" stroke="#190d42" />
-      <YAxis stroke="#190d42" />
-      <Tooltip
-        contentStyle={{
-          backgroundColor: 'rgba(0,0,0,0.9)',
-          border: 'none',
-          borderRadius: '8px',
-          color: '#fff'
-        }}
-      />
-      <Legend />
-      
-      <Bar 
-        dataKey="currentLevel" 
-        name="Current Level (L)"
-        background={{ fill: 'rgba(99, 102, 241, 0.1)', stroke: '#6366f1', strokeWidth: 2 }}
-      >
-        {getBarChartData().map((entry, index) => {
-          const percent = entry.currentLevel / entry.maxVolume;
-          let color = '#2E404A'; // green (default)
-
-          if (percent < 0.4) color = '#794B72'; // red if < 40%
-          else if (percent < 0.75) color = '#EFDEA6'; // yellow if < 75%
-
-          return <Cell key={`cell-${index}`} fill={color} />;
-        })}
-      </Bar>
-    </BarChart>
-  </ResponsiveContainer>
-</div> */}
-
+        </div>
 
         {/* Cauldron Details Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Cauldron Selection and Line Chart */}
-          <div className="bg-white/80 rounded-lg p-6 border border-white/20 ">
-            <h2 className="text-2xl font-bold mb-4">Historical Levels</h2>
-            
+          <div className="rounded-lg border border-white/20 bg-white/80 p-6">
+            <h2 className="mb-4 text-2xl font-bold">Historical Levels</h2>
+
             {/* Cauldron Selector */}
             {cauldrons.length > 0 ? (
               <>
                 <select
-                  value={selectedCauldron || ''}
+                  value={selectedCauldron || ""}
                   onChange={(e) => setSelectedCauldron(e.target.value)}
-                  className="w-full bg-white/20 px-4 py-2 rounded-lg mb-4 border border-gray-400"
+                  className="mb-4 w-full rounded-lg border border-gray-400 bg-white/20 px-4 py-2"
                 >
-                  {cauldrons.map(cauldron => (
+                  {cauldrons.map((cauldron) => (
                     <option key={cauldron.id} value={cauldron.id}>
                       {cauldron.name || cauldron.id}
                     </option>
@@ -275,21 +330,43 @@ const App = () => {
                 </select>
                 <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={getChartData()}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="rgba(255,255,255,0.1)"
+                    />
                     <XAxis dataKey="time" stroke="#190d42" />
-                    <YAxis stroke="#190d42" domain={[minLevel, maxLevel]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'rgba(0,0,0,0.8)', 
-                        border: 'none', 
-                        borderRadius: '8px',
-                        color: '#fff'
+                    <YAxis
+                      stroke="#190d42"
+                      domain={[minLevel, maxLevel]}
+                      tickFormatter={(value) => value.toFixed(1)}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "rgba(0,0,0,0.9)",
+                        border: "none",
+                        borderRadius: "8px",
+                        color: "#fff",
+                      }}
+                      formatter={(value) => {
+                        const selectedCauldronData = cauldrons.find(
+                          (c) => c.id === selectedCauldron,
+                        );
+                        if (selectedCauldronData) {
+                          const percent = (
+                            (value / selectedCauldronData.max_volume) *
+                            100
+                          ).toFixed(0);
+                          return [
+                            `${value}/${selectedCauldronData.max_volume} L (${percent}%)`,
+                          ];
+                        }
+                        return [value, "Level (L)"];
                       }}
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="level" 
-                      stroke="#8b5cf6" 
+                    <Line
+                      type="monotone"
+                      dataKey="level"
+                      stroke="#8b5cf6"
                       strokeWidth={2}
                       dot={false}
                       name="Level (L)"
@@ -302,95 +379,99 @@ const App = () => {
             )}
           </div>
 
-          <div className="bg-white/80 rounded-lg p-6 border border-white/20">
-            <h2 className="text-2xl font-bold mb-4">Important Events</h2>
+          <div className="rounded-lg border border-white/20 bg-white/80 p-6">
+            <h2 className="mb-4 text-2xl font-bold">Important Events</h2>
           </div>
-          
-          {/* <div className="bg-white/80 rounded-lg p-6 border border-white/20">
-            <h2 className="text-2xl font-bold mb-4">Cauldron Status</h2>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {cauldrons.length > 0 ? (
-                cauldrons.map(cauldron => {
-                  const level = currentLevels[cauldron.id] || 0;
-                  const percentage = (level / cauldron.max_volume * 100);
-                  const isHigh = percentage > 80;
-                  const isMedium = percentage > 50;
-                  
-                  return (
-                    <div 
-                      key={cauldron.id} 
-                      className="bg-white/10 rounded-lg p-4 border border-white/20"
-                    >
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-semibold">{cauldron.name || cauldron.id}</span>
-                        <span className="text-sm">
-                          {level.toFixed(1)}L / {cauldron.max_volume}L
-                        </span>
-                      </div>
-                      <div className="w-full bg-white/20 rounded-full h-3">
-                        <div
-                          className={`h-3 rounded-full transition-all ${
-                            isHigh ? 'bg-red-500' :
-                            isMedium ? 'bg-yellow-500' :
-                            'bg-green-500'
-                          }`}
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        />
-                      </div>
-                      <div className="text-xs mt-1">
-                        {percentage.toFixed(1)}% full
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-purple-200">No cauldrons available</p>
-              )}
-            </div>
-          </div> */}
         </div>
 
         {/* Recent Tickets */}
-        
-        <h2 className="text-3xl font-bold mt-8 ">Recent Transport Tickets</h2>
-        <div className="bg-white/80 rounded-xl overflow-x-auto">
-            {tickets.length > 0 ? (
+
+        <h2 className="mt-8 text-3xl font-bold">Recent Transport Tickets</h2>
+        <div className="overflow-x-auto rounded-xl bg-white/80">
+          {tickets.length > 0 ? (
+            <>
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/20 bg-zinc-300">
-                    <th className="text-left py-2 px-4">Ticket ID</th>
-                    <th className="text-left py-2 px-4">Cauldron</th>
-                    <th className="text-left py-2 px-4">Amount</th>
-                    <th className="text-left py-2 px-4">Courier</th>
-                    <th className="text-left py-2 px-4">Date</th>
+                    <th className="px-4 py-2 text-left">Ticket ID</th>
+                    <th className="px-4 py-2 text-left">Cauldron</th>
+                    <th className="px-4 py-2 text-left">Amount</th>
+                    <th className="px-4 py-2 text-left">Courier</th>
+                    <th className="px-4 py-2 text-left">Date</th>
                   </tr>
                 </thead>
-                  <tbody className="divide-y divide-zinc-300">
-                    {tickets
-                      .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest → oldest
-                      .slice(0, 10)
-                      .map(ticket => (
-                        <tr 
-                          key={ticket.ticket_id} 
-                          className="hover:bg-gray-100 transition-colors"
-                        >
-                          <td className="py-2 px-4">{ticket.ticket_id}</td>
-                          <td className="py-2 px-4">{ticket.cauldron_id}</td>
-                          <td className="py-2 px-4">{ticket.amount_collected}L</td>
-                          <td className="py-2 px-4">{ticket.courier_id}</td>
-                          <td className="py-2 px-4">{new Date(ticket.date).toLocaleDateString()}</td>
-                        </tr>
-                      ))}
-                  </tbody>
+                <tbody className="divide-y divide-zinc-300">
+                  {currentTickets.map((ticket) => (
+                    <tr
+                      key={ticket.ticket_id}
+                      className="transition-colors hover:bg-gray-100"
+                    >
+                      <td className="px-4 py-2">{ticket.ticket_id}</td>
+                      <td className="px-4 py-2">{ticket.cauldron_id}</td>
+                      <td className="px-4 py-2">{ticket.amount_collected}L</td>
+                      <td className="px-4 py-2">{ticket.courier_id}</td>
+                      <td className="px-4 py-2">
+                        {new Date(ticket.date).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
-            ) : (
-              <p className="text-purple-200">No tickets available</p>
-            )}
+
+              <div className="flex flex-col gap-3 border-t border-zinc-300 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm">
+                  Showing {indexOfFirstTicket + 1}–
+                  {Math.min(indexOfLastTicket, sortedTickets.length)} of{" "}
+                  {sortedTickets.length} tickets
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() =>
+                      setCurrentPage((prev) => Math.max(prev - 1, 1))
+                    }
+                    disabled={currentPage === 1}
+                    className="rounded bg-zinc-300 px-4 py-2 transition-colors hover:bg-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+
+                  {/* Dropdown Page Selector */}
+                  <select
+                    value={currentPage}
+                    onChange={(e) => setCurrentPage(Number(e.target.value))}
+                    className="rounded border border-zinc-300 bg-zinc-200 px-3 py-2 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+                  >
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                      (page) => (
+                        <option key={page} value={page}>
+                          Page {page}
+                        </option>
+                      ),
+                    )}
+                  </select>
+
+                  <button
+                    onClick={() =>
+                      setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                    }
+                    disabled={currentPage === totalPages}
+                    className="rounded bg-zinc-300 px-4 py-2 transition-colors hover:bg-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="p-4 text-purple-200">No tickets available</p>
+          )}
         </div>
 
         {/* Footer */}
         <div className="mt-6 text-center text-sm">
-          Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every 10s
+          Last updated: {new Date().toLocaleTimeString()} • Auto-refresh every
+          10s
         </div>
       </div>
     </div>
@@ -400,7 +481,7 @@ const App = () => {
 const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   if (!cauldrons?.length) {
     return (
-      <div className="h-[400px] w-full flex items-center justify-center rounded-lg border border-white/20 bg-black/20">
+      <div className="flex h-[400px] w-full items-center justify-center rounded-lg border border-white/20 bg-black/20">
         <p className="">No cauldrons available for map display</p>
       </div>
     );
@@ -414,18 +495,34 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
   const minLon = Math.min(...lons);
   const maxLon = Math.max(...lons);
 
+  // 🧭 Add padding so markers at the edges aren't clipped
+  const paddingFactor = 0.15; // 5% of range on each side
+  const latRange = maxLat - minLat;
+  const lonRange = maxLon - minLon;
+
+  const paddedMinLat = minLat - latRange * paddingFactor;
+  const paddedMaxLat = maxLat + latRange * paddingFactor;
+  const paddedMinLon = minLon - lonRange * paddingFactor;
+  const paddedMaxLon = maxLon + lonRange * paddingFactor;
+
   const normalize = (val, min, max) => ((val - min) / (max - min)) * 100;
 
-  // Generate 5 evenly spaced grid markers for each axis
-  const latTicks = Array.from({ length: 5 }, (_, i) => minLat + ((maxLat - minLat) / 4) * i);
-  const lonTicks = Array.from({ length: 5 }, (_, i) => minLon + ((maxLon - minLon) / 4) * i);
+  // Generate 5 evenly spaced grid markers for each axis (using padded range)
+  const latTicks = Array.from(
+    { length: 5 },
+    (_, i) => paddedMinLat + ((paddedMaxLat - paddedMinLat) / 4) * i,
+  );
+  const lonTicks = Array.from(
+    { length: 5 },
+    (_, i) => paddedMinLon + ((paddedMaxLon - paddedMinLon) / 4) * i,
+  );
 
   return (
-    <div className="relative w-full h-[300px] bg-white/60 border border-white/20 rounded-lg overflow-hidden mb-2">
+    <div className="relative mb-2 h-[300px] w-full overflow-hidden rounded-lg border border-white/20 bg-white/60">
       {/* 🗺️ Grid Lines and Labels */}
       {/* Vertical (Longitude) lines */}
       {lonTicks.map((lon, i) => {
-        const x = normalize(lon, minLon, maxLon);
+        const x = normalize(lon, paddedMinLon, paddedMaxLon);
         return (
           <React.Fragment key={`lon-${i}`}>
             <div
@@ -433,8 +530,8 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
               style={{ left: `${x}%` }}
             />
             <div
-              className="absolute bottom-0 text-[10px] transform translate-x-[-50%]"
-              style={{ left: `${x}%`, paddingBottom: '2px' }}
+              className="absolute bottom-0 translate-x-[-50%] transform text-[10px]"
+              style={{ left: `${x}%`, paddingBottom: "2px" }}
             >
               {lon.toFixed(3)}°
             </div>
@@ -444,15 +541,15 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
 
       {/* Horizontal (Latitude) lines */}
       {latTicks.map((lat, i) => {
-        const y = 100 - normalize(lat, minLat, maxLat);
+        const y = 100 - normalize(lat, paddedMinLat, paddedMaxLat);
         return (
           <React.Fragment key={`lat-${i}`}>
             <div
-              className="absolute left-0 right-0 border-t border-white/10"
+              className="absolute right-0 left-0 border-t border-white/10"
               style={{ top: `${y}%` }}
             />
             <div
-              className="absolute left-0 text-[10px] transform translate-y-[-50%] pl-1"
+              className="absolute left-0 translate-y-[-50%] transform pl-1 text-[10px]"
               style={{ top: `${y}%` }}
             >
               {lat.toFixed(3)}°
@@ -466,13 +563,18 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
         const level = currentLevels[c.id] || 0;
         const fillPercent = Math.min((level / c.max_volume) * 100, 100);
 
-                let color = 'bg-[#2E404A]'; // green (default)
+        let color = "bg-[#2E404A]"; // green (default)
+        let textColor = "text-white"; // white text for green
 
-                if (fillPercent < 40) color = 'bg-[#794B72]'; // red if < 40%
-                else if (fillPercent < 75) color = 'bg-[#EFDEA6]'; // yellow if < 75%
+        if (fillPercent < 40) {
+          color = "bg-[#794B72]"; // red if < 40%
+        } else if (fillPercent < 75) {
+          color = "bg-[#e6d18c]"; // yellow if < 75%
+          textColor = "text-[#190d42]";
+        }
 
-        const x = normalize(c.longitude, minLon, maxLon);
-        const y = 100 - normalize(c.latitude, minLat, maxLat);
+        const x = normalize(c.longitude, paddedMinLon, paddedMaxLon);
+        const y = 100 - normalize(c.latitude, paddedMinLat, paddedMaxLat);
 
         return (
           <div
@@ -485,12 +587,12 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
             }}
           >
             <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-xs ${color}`}
+              className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold ${color} ${textColor}`}
               style={{ opacity: 0.85 }}
             >
               {Math.round(fillPercent)}%
             </div>
-            <p className="mt-1 text-white text-[10px] text-center bg-black/50 px-1 rounded">
+            <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-white">
               {c.name || c.id}
             </p>
           </div>
@@ -502,15 +604,15 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
         <div
           className="absolute flex flex-col items-center"
           style={{
-            left: `${normalize(market.longitude, minLon, maxLon)}%`,
-            top: `${100 - normalize(market.latitude, minLat, maxLat)}%`,
+            left: `${normalize(market.longitude, paddedMinLon, paddedMaxLon)}%`,
+            top: `${100 - normalize(market.latitude, paddedMinLat, paddedMaxLat)}%`,
             transform: "translate(-50%, -50%)",
           }}
         >
-          <div className="w-10 h-10 rounded-md bg-yellow-400 flex items-center justify-center font-bold text-black text-lg shadow-lg">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-lg font-bold text-black shadow-lg">
             ✦
           </div>
-          <p className="mt-1 text-yellow-200 text-[10px] text-center bg-black/50 px-1 rounded">
+          <p className="mt-1 rounded bg-black/50 px-1 text-center text-[10px] text-yellow-200">
             {market.name}
           </p>
         </div>
@@ -518,6 +620,5 @@ const CauldronGridMap = ({ cauldrons, currentLevels, market }) => {
     </div>
   );
 };
-
 
 export default App;
